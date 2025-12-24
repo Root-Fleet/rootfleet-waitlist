@@ -7,4 +7,3 @@ pages_build_output_dir = "public"
 binding = "DB"
 database_name = "rootfleet_waitlist"
 database_id = "53ed2dfa-2608-4493-b9bd-f73a9a402acd"
-
