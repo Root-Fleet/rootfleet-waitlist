@@ -3,9 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Rootfleet — Join the waitlist</title>
+    <title>Rootfleet – Join the waitlist</title>
+
     <link rel="stylesheet" href="/styles.css" />
   </head>
+
   <body>
     <main class="card">
       <h1>Rootfleet</h1>
@@ -13,6 +15,31 @@
 
       <form id="waitlist-form">
         <input id="email" type="email" placeholder="you@example.com" required />
+
+        <select id="role" required>
+          <option value="" disabled selected>Select your role</option>
+          <option value="fleet_owner">Fleet Owner</option>
+          <option value="operations">Operations / Dispatcher</option>
+          <option value="fleet_staff">Driver / Fleet staff</option>
+          <option value="engineer">Engineer / Technical</option>
+          <option value="other">Other</option>
+        </select>
+
+        <select id="fleetSize" required>
+          <option value="" disabled selected>Select fleet size</option>
+          <option value="1-5">1–5</option>
+          <option value="6-20">6–20</option>
+          <option value="21-100">21–100</option>
+          <option value="101-500">101–500</option>
+          <option value="500+">500+</option>
+        </select>
+
+        <input
+          id="companyName"
+          type="text"
+          placeholder="Company name (optional)"
+        />
+
         <button type="submit">Join</button>
       </form>
 
