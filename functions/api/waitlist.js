@@ -1,3 +1,6 @@
+import { sendResendEmail } from "../lib/resend.js";
+import { buildWaitlistConfirmationEmail } from "../templates/waitlistConfirmationEmail.js";
+
 function json(status, body) {
   return new Response(JSON.stringify(body), {
     status,
@@ -36,14 +39,23 @@ export async function onRequestPost({ request, env }) {
     const companyNameRaw = body.companyName == null ? "" : String(body.companyName);
     const companyName = companyNameRaw.trim() ? companyNameRaw.trim() : null;
 
-    if (!isValidEmail(email)) return json(400, { ok: false, error: "Please enter a valid email." });
-    if (!ALLOWED_ROLES.has(role)) return json(400, { ok: false, error: "Please select a valid role." });
-    if (!ALLOWED_FLEET_SIZES.has(fleetSize)) return json(400, { ok: false, error: "Please select a valid fleet size." });
+    // Validate
+    if (!isValidEmail(email)) {
+      return json(400, { ok: false, error: "Please enter a valid email." });
+    }
+    if (!ALLOWED_ROLES.has(role)) {
+      return json(400, { ok: false, error: "Please select a valid role." });
+    }
+    if (!ALLOWED_FLEET_SIZES.has(fleetSize)) {
+      return json(400, { ok: false, error: "Please select a valid fleet size." });
+    }
 
+    // Metadata (optional)
     const ip = request.headers.get("cf-connecting-ip") || null;
     const userAgent = request.headers.get("user-agent") || null;
     const createdAt = new Date().toISOString();
 
+    // Insert into D1 (idempotent, avoids duplicates)
     const stmt = env.DB.prepare(`
       INSERT INTO waitlist (email, role, fleet_size, company_name, created_at, ip, user_agent)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -56,13 +68,40 @@ export async function onRequestPost({ request, env }) {
 
     const inserted = result?.meta?.changes === 1;
 
+    // Send confirmation email only if this is a new signup
+    if (inserted) {
+      const apiKey = env.RESEND_API_KEY;
+      if (!apiKey) {
+        throw new Error("Missing RESEND_API_KEY (Pages secret).");
+      }
+
+      const from = env.RESEND_FROM || "Rootfleet <noreply@rootfleet.com>";
+
+      const { subject, html, text } = buildWaitlistConfirmationEmail({
+        email,
+        role,
+        fleetSize,
+        companyName,
+      });
+
+      await sendResendEmail({
+        apiKey,
+        from,
+        to: email,
+        subject,
+        html,
+        text, // ✅ plain-text fallback included
+      });
+    }
+
     return json(200, {
       ok: true,
-      message: inserted ? "You're on the list ✅" : "You're already on the list ✅",
+      message: inserted
+        ? "You're on the list ✅ (check your inbox)"
+        : "You're already on the list ✅",
     });
   } catch (err) {
     return json(500, { ok: false, error: err?.message || "Server error" });
   }
 }
-
 
