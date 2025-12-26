@@ -31,11 +31,26 @@ export function buildWaitlistConfirmationEmail({ email, role, fleetSize, company
 
   const subject = "Rootfleet waitlist confirmation";
 
-  const html = `
-    <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.5; color:#0f172a;">
-      <h2 style="margin:0 0 12px;">You're on the waitlist ✅</h2>
+  // IMPORTANT: this must be a PUBLIC https URL (not /public/...)
+  const logoUrl = "https://rootfleet.com/rootfleet-logo-512.png";
 
-      <p style="margin:0 0 12px;">
+  const html = `
+    <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.5; color:#0f172a; max-width:520px; margin:0 auto;">
+
+      <!-- Logo -->
+      <div style="text-align:center; margin:0 0 16px;">
+        <img
+          src="${logoUrl}"
+          width="72"
+          height="72"
+          alt="Rootfleet"
+          style="display:block; margin:0 auto;"
+        />
+      </div>
+
+      <h2 style="margin:0 0 12px; text-align:center;">You're on the waitlist ✅</h2>
+
+      <p style="margin:0 0 12px; text-align:center;">
         Thanks for joining the Rootfleet waitlist. We'll email you when early access opens.
       </p>
 
@@ -47,7 +62,7 @@ export function buildWaitlistConfirmationEmail({ email, role, fleetSize, company
         <div style="font-size:13px; color:#475569;">Company: <strong style="color:#0f172a;">${safeCompany}</strong></div>
       </div>
 
-      <p style="margin:0; font-size:12px; color:#64748b;">
+      <p style="margin:0; font-size:12px; color:#64748b; text-align:center;">
         This is an automated message — please do not reply.
       </p>
     </div>
