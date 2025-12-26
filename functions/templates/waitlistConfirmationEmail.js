@@ -32,7 +32,7 @@ export function buildWaitlistConfirmationEmail({ email, role, fleetSize, company
   const subject = "Rootfleet waitlist confirmation";
 
   // IMPORTANT: this must be a PUBLIC https URL (not /public/...)
-  const logoUrl = "https://rootfleet.com/rootfleet-logo-512.png";
+  const logoUrl = "https://waitlist.rootfleet.com/rootfleet-logo-512.png";
 
   const html = `
     <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.5; color:#0f172a; max-width:520px; margin:0 auto;">
