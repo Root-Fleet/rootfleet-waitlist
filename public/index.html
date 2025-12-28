@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/favicon-32x32.png">
 
   <title>Rootfleet — Fleet management, without the chaos</title>
-  <meta name="description" content="Modern fleet management to track vehicles, manage drivers, and reduce downtime." />
+  <meta name="description" content="Rootfleet helps fleets track vehicles, manage drivers, reduce downtime, and make smarter decisions — all from one dashboard." />
 
   <link rel="stylesheet" href="/styles.css" />
   <script src="/app.js" defer></script>
@@ -21,23 +21,17 @@
   <div class="bg">
     <div class="container">
 
-      <!-- HEADER -->
       <header class="topbar">
         <div class="brand">
-          <img
-            src="/rootfleet-logo-512.svg"
-            alt="Rootfleet logo"
-            class="brand__logo"
-          />
-          <div>
+          <img class="brand__logo" src="/rootfleet-logo-512.svg" alt="Rootfleet logo" />
+          <div class="brand__text">
             <div class="brand__name">Rootfleet</div>
             <div class="brand__tag">Fleet management</div>
           </div>
         </div>
 
-        <!-- WAITLIST COUNT -->
-        <div class="proof">
-          <div class="proof__pill">
+        <div class="proof" aria-label="Waitlist count">
+          <div class="proof__pill" title="Live waitlist count">
             <span class="proof__count" id="waitlistCount">—</span>
             <span class="proof__label">already joined</span>
           </div>
@@ -45,14 +39,11 @@
       </header>
 
       <main class="grid">
-
-        <!-- PRODUCT STORY -->
+        <!-- Left: product story -->
         <section class="hero">
           <h1>Fleet management, without the chaos.</h1>
-
           <p class="subhead">
-            Rootfleet helps fleet owners track vehicles, manage drivers,
-            reduce downtime, and make smarter decisions — all from one dashboard.
+            Rootfleet helps fleets track vehicles, manage drivers, reduce downtime, and make smarter decisions — all from one dashboard.
           </p>
 
           <ul class="bullets">
@@ -62,60 +53,73 @@
           </ul>
 
           <div class="callout">
-            <strong>Early access</strong><br />
-            Join the waitlist to be invited when the first release opens.
+            <div class="callout__title">Early access</div>
+            <div class="callout__body">
+              Join the waitlist to be invited when the first release opens.
+            </div>
           </div>
         </section>
 
-        <!-- WAITLIST FORM (same fields, better framing) -->
+        <!-- Right: waitlist form (same questions + same IDs) -->
         <section class="card">
           <h2>Join the waitlist</h2>
           <p class="muted">Be first to know when early access opens.</p>
 
           <form id="waitlist-form" class="form">
-            <input id="email" type="email" placeholder="you@example.com" required />
+            <label class="field">
+              <span>Email</span>
+              <input id="email" type="email" placeholder="you@example.com" autocomplete="email" required />
+            </label>
 
-            <select id="role" required>
-              <option value="" disabled selected>Select your role</option>
-              <option value="fleet_owner">Fleet Owner</option>
-              <option value="operations">Operations / Dispatcher</option>
-              <option value="fleet_staff">Driver / Fleet staff</option>
-              <option value="engineer">Engineer / Technical</option>
-              <option value="other">Other</option>
-            </select>
+            <label class="field">
+              <span>Role</span>
+              <select id="role" required>
+                <option value="" disabled selected>Select your role</option>
+                <option value="fleet_owner">Fleet Owner</option>
+                <option value="operations">Operations / Dispatcher</option>
+                <option value="fleet_staff">Driver / Fleet staff</option>
+                <option value="engineer">Engineer / Technical</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
 
-            <select id="fleetSize" required>
-              <option value="" disabled selected>Select fleet size</option>
-              <option value="1-5">1–5</option>
-              <option value="6-20">6–20</option>
-              <option value="21-100">21–100</option>
-              <option value="101-500">101–500</option>
-              <option value="500+">500+</option>
-            </select>
+            <label class="field">
+              <span>Fleet size</span>
+              <select id="fleetSize" required>
+                <option value="" disabled selected>Select fleet size</option>
+                <option value="1-5">1–5</option>
+                <option value="6-20">6–20</option>
+                <option value="21-100">21–100</option>
+                <option value="101-500">101–500</option>
+                <option value="500+">500+</option>
+              </select>
+            </label>
 
-            <input
-              id="companyName"
-              type="text"
-              placeholder="Company name (optional)"
-            />
+            <label class="field">
+              <span>Company name <em>(optional)</em></span>
+              <input id="companyName" type="text" placeholder="e.g. Acme Logistics" autocomplete="organization" />
+            </label>
 
             <button type="submit" id="submitBtn">Get early access</button>
+
+            <p id="msg" class="msg" aria-live="polite"></p>
+
+            <p class="fineprint">
+              By joining, you agree to receive product updates. No spam. Unsubscribe anytime.
+            </p>
           </form>
-
-          <p id="msg" class="msg"></p>
-
-          <p class="fineprint">
-            No spam. Product updates only. Unsubscribe anytime.
-          </p>
         </section>
       </main>
 
       <footer class="footer">
-        © <span id="year"></span> Rootfleet • Built for modern fleets
+        <span>© <span id="year"></span> Rootfleet</span>
+        <span class="footer__sep">•</span>
+        <span class="footer__muted">Built for modern fleets</span>
       </footer>
 
     </div>
   </div>
 </body>
 </html>
+
 
