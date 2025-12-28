@@ -19,10 +19,9 @@ function roleLabel(role) {
 }
 
 /**
- * “Industrial standard” confirmation email:
- * - short, clear, transactional
+ * Transactional confirmation email:
+ * - short, clear, professional
  * - includes submitted info
- * - no reply expectation
  */
 export function buildWaitlistConfirmationEmail({ email, role, fleetSize, companyName }) {
   const safeCompany = companyName ? escapeHtml(companyName) : "Rootfleet";
@@ -31,21 +30,13 @@ export function buildWaitlistConfirmationEmail({ email, role, fleetSize, company
 
   const subject = "Rootfleet waitlist confirmation";
 
-  // IMPORTANT: this must be a PUBLIC https URL (not /public/...)
+  // IMPORTANT: public https URL
   const logoUrl = "https://waitlist.rootfleet.com/rootfleet-logo-512.png";
 
   const html = `
     <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.5; color:#0f172a; max-width:520px; margin:0 auto;">
-
-      <!-- Logo -->
       <div style="text-align:center; margin:0 0 16px;">
-        <img
-          src="${logoUrl}"
-          width="72"
-          height="72"
-          alt="Rootfleet"
-          style="display:block; margin:0 auto;"
-        />
+        <img src="${logoUrl}" width="72" height="72" alt="Rootfleet" style="display:block; margin:0 auto;" />
       </div>
 
       <h2 style="margin:0 0 12px; text-align:center;">You're on the waitlist ✅</h2>
@@ -68,7 +59,6 @@ export function buildWaitlistConfirmationEmail({ email, role, fleetSize, company
     </div>
   `;
 
-  // Optional plain text fallback (good practice)
   const text =
 `You're on the Rootfleet waitlist ✅
 
