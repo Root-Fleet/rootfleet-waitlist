@@ -40,8 +40,8 @@ body{
 }
 
 .brand__logo{
-  width:40px;
-  height:40px;
+  width:30px;
+  height:30px;
   border-radius:80px;
   object-fit:cover;
   box-shadow: 0 10px 25px rgba(0,0,0,.25);
@@ -49,8 +49,8 @@ body{
   background:#0a1020;
 }
 
-.brand__name{font-weight:900; letter-spacing:.2px;}
-.brand__tag{font-size:20px; color:var(--muted2); margin-top:2px;}
+.brand__name{font-size: 25px; font-weight:800; letter-spacing:.2px;}
+.brand__tag{font-size:15px; color:var(--muted2); margin-top:2px;}
 
 .proof__pill{
   display:flex;
@@ -64,7 +64,7 @@ body{
 }
 
 .proof__count{font-weight:900; color:var(--accent);}
-.proof__label{font-size:12px; color:var(--muted);}
+.proof__label{font-size:15px; color:var(--muted);}
 
 .grid{
   display:grid;
@@ -96,7 +96,7 @@ body{
 
 /* NEW: hero logo sizing (this is the main fix for “logo too big”) */
 .hero__logo{
-  width: min(220px, 55%);
+  width: min(200px, 55%);
   height: auto;
   display:block;
   margin: 2px auto 16px;
