@@ -6,4 +6,4 @@ pages_build_output_dir = "public"
 [[d1_databases]]
 binding = "DB"
 database_name = "rootfleet_waitlist"
-database_id = "53ed2dfa-2608-4493-b9bd-f73a9a402acd"
+database_id = "0f85850c-0aaf-40f4-821a-061d3489968f"
