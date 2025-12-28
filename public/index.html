@@ -1,61 +1,121 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-	<!-- FAVICONS -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-    <link rel="apple-touch-icon" href="/favicon-32x32.png">
+  <!-- FAVICONS -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="apple-touch-icon" href="/favicon-32x32.png">
 
+  <title>Rootfleet — Fleet management, without the chaos</title>
+  <meta name="description" content="Modern fleet management to track vehicles, manage drivers, and reduce downtime." />
 
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/app.js" defer></script>
+</head>
 
-    <title>Rootfleet – Join the waitlist</title>
+<body>
+  <div class="bg">
+    <div class="container">
 
-    <link rel="stylesheet" href="/styles.css" />
-  </head>
+      <!-- HEADER -->
+      <header class="topbar">
+        <div class="brand">
+          <img
+            src="/rootfleet-logo-512.svg"
+            alt="Rootfleet logo"
+            class="brand__logo"
+          />
+          <div>
+            <div class="brand__name">Rootfleet</div>
+            <div class="brand__tag">Fleet management</div>
+          </div>
+        </div>
 
-  <body>
-    <main class="card">
-      <h1>Rootfleet</h1>
-      <p>Join the waitlist to get early access.</p>
+        <!-- WAITLIST COUNT -->
+        <div class="proof">
+          <div class="proof__pill">
+            <span class="proof__count" id="waitlistCount">—</span>
+            <span class="proof__label">already joined</span>
+          </div>
+        </div>
+      </header>
 
-      <form id="waitlist-form">
-        <input id="email" type="email" placeholder="you@example.com" required />
+      <main class="grid">
 
-        <select id="role" required>
-          <option value="" disabled selected>Select your role</option>
-          <option value="fleet_owner">Fleet Owner</option>
-          <option value="operations">Operations / Dispatcher</option>
-          <option value="fleet_staff">Driver / Fleet staff</option>
-          <option value="engineer">Engineer / Technical</option>
-          <option value="other">Other</option>
-        </select>
+        <!-- PRODUCT STORY -->
+        <section class="hero">
+          <h1>Fleet management, without the chaos.</h1>
 
-        <select id="fleetSize" required>
-          <option value="" disabled selected>Select fleet size</option>
-          <option value="1-5">1–5</option>
-          <option value="6-20">6–20</option>
-          <option value="21-100">21–100</option>
-          <option value="101-500">101–500</option>
-          <option value="500+">500+</option>
-        </select>
+          <p class="subhead">
+            Rootfleet helps fleet owners track vehicles, manage drivers,
+            reduce downtime, and make smarter decisions — all from one dashboard.
+          </p>
 
-        <input
-          id="companyName"
-          type="text"
-          placeholder="Company name (optional)"
-        />
+          <ul class="bullets">
+            <li><span class="dot"></span>Vehicle & fleet tracking</li>
+            <li><span class="dot"></span>Driver & operations management</li>
+            <li><span class="dot"></span>Insights to cut costs & downtime</li>
+          </ul>
 
-        <button type="submit">Join</button>
-      </form>
+          <div class="callout">
+            <strong>Early access</strong><br />
+            Join the waitlist to be invited when the first release opens.
+          </div>
+        </section>
 
-      <p id="msg" class="msg"></p>
-    </main>
+        <!-- WAITLIST FORM (same fields, better framing) -->
+        <section class="card">
+          <h2>Join the waitlist</h2>
+          <p class="muted">Be first to know when early access opens.</p>
 
-    <script src="/app.js"></script>
-  </body>
+          <form id="waitlist-form" class="form">
+            <input id="email" type="email" placeholder="you@example.com" required />
+
+            <select id="role" required>
+              <option value="" disabled selected>Select your role</option>
+              <option value="fleet_owner">Fleet Owner</option>
+              <option value="operations">Operations / Dispatcher</option>
+              <option value="fleet_staff">Driver / Fleet staff</option>
+              <option value="engineer">Engineer / Technical</option>
+              <option value="other">Other</option>
+            </select>
+
+            <select id="fleetSize" required>
+              <option value="" disabled selected>Select fleet size</option>
+              <option value="1-5">1–5</option>
+              <option value="6-20">6–20</option>
+              <option value="21-100">21–100</option>
+              <option value="101-500">101–500</option>
+              <option value="500+">500+</option>
+            </select>
+
+            <input
+              id="companyName"
+              type="text"
+              placeholder="Company name (optional)"
+            />
+
+            <button type="submit" id="submitBtn">Get early access</button>
+          </form>
+
+          <p id="msg" class="msg"></p>
+
+          <p class="fineprint">
+            No spam. Product updates only. Unsubscribe anytime.
+          </p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        © <span id="year"></span> Rootfleet • Built for modern fleets
+      </footer>
+
+    </div>
+  </div>
+</body>
 </html>
 
