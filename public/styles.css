@@ -216,7 +216,7 @@ button:disabled{opacity:.6; cursor:not-allowed;}
 .msg.err{color:#fca5a5;}
 
 .fineprint{
-  margin:7px 0 0;
+  margin:5px 0 0;
   color: rgba(168,179,199,.7);
   font-size:12px;
   line-height:1.5;
