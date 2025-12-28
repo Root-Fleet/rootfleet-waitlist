@@ -1,6 +1,7 @@
 import { sendResendEmail } from "../../lib/resend.js";
 import { buildWaitlistConfirmationEmail } from "../../templates/waitlistConfirmationEmail.js";
 
+
 function json(status, body, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
