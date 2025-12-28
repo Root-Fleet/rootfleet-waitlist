@@ -74,7 +74,7 @@ if (form) {
       fleetSizeInput.selectedIndex = 0;
       companyNameInput.value = "";
 
-      // Refresh count after successful submit (joined or already joined)
+      // Refresh count
       fetchWaitlistCount();
     } catch (err) {
       setMsg(err?.message || "Something went wrong", "err");
