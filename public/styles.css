@@ -96,7 +96,7 @@ body{
 
 /* NEW: hero logo sizing (this is the main fix for “logo too big”) */
 .hero__logo{
-  width: min(180px, 55%);
+  width: min(120px, 55%);
   height: auto;
   display:block;
   margin: 2px auto 16px;
