@@ -69,11 +69,12 @@ body{
 .grid{
   display:grid;
   grid-template-columns: 1.1fr .9fr;
-  gap:18px;
+  gap:22px; /* was 18px (slightly more breathing room) */
+  align-items:start; /* NEW: prevents odd vertical stretching */
 }
 
 .hero{
-  padding:22px 18px;
+  padding:26px 22px; /* was 22px 18px */
   border:1px solid rgba(255,255,255,.06);
   border-radius:var(--r);
   background: rgba(10,14,26,.22);
@@ -93,14 +94,32 @@ body{
 }
 .hero > *{position:relative;}
 
+/* NEW: hero logo sizing (this is the main fix for “logo too big”) */
+.hero__logo{
+  width: min(220px, 55%);
+  height: auto;
+  display:block;
+  margin: 2px auto 16px;
+  filter: drop-shadow(0 18px 35px rgba(0,0,0,.35));
+  opacity: .95;
+}
+
+/* If you ever switch to inline SVG in the hero */
+.hero__logo svg{
+  width: 100%;
+  height: auto;
+  display:block;
+}
+
 h1{
   margin:0 0 10px;
   font-size:40px;
   line-height:1.05;
   letter-spacing:-0.6px;
 }
+
 .subhead{
-  margin:0 0 18px;
+  margin:0 0 14px; /* was 18px */
   color:var(--muted);
   font-size:16px;
   line-height:1.6;
@@ -110,16 +129,18 @@ h1{
 .bullets{
   list-style:none;
   padding:0;
-  margin:0 0 18px;
+  margin:0 0 14px; /* was 18px */
   display:grid;
   gap:10px;
 }
+
 .bullets li{
   display:flex;
   align-items:center;
   gap:10px;
   color:#d8e1f2;
 }
+
 .dot{
   width:10px;
   height:10px;
@@ -135,6 +156,7 @@ h1{
   border:1px solid rgba(255,255,255,.08);
   background: rgba(8,12,22,.35);
 }
+
 .callout__title{font-weight:800; margin-bottom:6px;}
 .callout__body{color:var(--muted); font-size:14px; line-height:1.5;}
 
@@ -215,4 +237,8 @@ button:disabled{opacity:.6; cursor:not-allowed;}
 @media (max-width: 900px){
   .grid{grid-template-columns:1fr;}
   h1{font-size:34px;}
+  .hero__logo{
+    width: min(180px, 55%);
+    margin-bottom: 14px;
+  }
 }
