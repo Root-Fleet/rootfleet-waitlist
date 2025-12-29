@@ -208,20 +208,23 @@ Configured in Cloudflare Pages settings.
 ## Production Safety & Rollback
 
 ### Stable Production Tag
-- `prod-stable-2025-12-28`
+- `prod-stable-2025-12-29`
 
 ### Rollback Strategy
 
 Primary rollback method is **deploying a known-good tag via a rollback branch**.
 
 ```bash
-./scripts/rollback-to-stable.sh
+git fetch --all --tags --prune
+./scripts/rollback-to-stable.sh prod-stable-2025-12-29 main
 ```
 
 This:
-- Creates a branch pointing to the stable tag
-- Pushes it to GitHub
-- Allows Cloudflare Pages to deploy it immediately
+- defaults to targeting main
+- creates a backup branch of the current main before rewinding
+- supports tag / SHA / branch name as the rollback ref
+- uses --force-with-lease (safe force)
+- refuses to run if you have uncommitted changes
 
 This approach avoids rewriting history and works well under pressure.
 
