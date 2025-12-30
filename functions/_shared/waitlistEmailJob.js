@@ -7,16 +7,22 @@ import { buildWaitlistConfirmationEmail } from "./templates/waitlistConfirmation
  * Safe against duplicates using a "claim" update:
  * pending -> processing must succeed before sending.
  *
- * Returns a result object for logging/metrics.
+ * Signature is standardized for both Pages and Worker usage:
+ *   processWaitlistEmailJob(job, env, ctx)
  */
-export async function processWaitlistEmailJob(env, job) {
-  const rid = job.rid || crypto.randomUUID();
+export async function processWaitlistEmailJob(job, env, ctx) {
+  const rid = job?.rid || crypto.randomUUID();
   const t0 = Date.now();
 
-  const email = String(job.email || "").trim().toLowerCase();
-  const role = String(job.role || "").trim();
-  const fleetSize = String(job.fleetSize || "").trim();
-  const companyName = job.companyName ?? null;
+  const email = String(job?.email || "").trim().toLowerCase();
+  const role = String(job?.role || "").trim();
+  const fleetSize = String(job?.fleetSize || "").trim();
+  const companyName = job?.companyName ?? null;
+
+  if (!email) {
+    log("emailjob.invalid", { rid, reason: "missing_email" });
+    return { rid, status: "invalid_job", totalMs: Date.now() - t0 };
+  }
 
   // 1) claim the row (avoid duplicate sends)
   const claimRes = await env.DB.prepare(
@@ -24,7 +30,9 @@ export async function processWaitlistEmailJob(env, job) {
      SET email_status = 'processing'
      WHERE email = ?
        AND (email_status IS NULL OR email_status = 'pending')`
-  ).bind(email).run();
+  )
+    .bind(email)
+    .run();
 
   const claimed = Number(claimRes?.meta?.changes || 0) === 1;
   if (!claimed) {
@@ -39,7 +47,9 @@ export async function processWaitlistEmailJob(env, job) {
        SET email_status = 'skipped',
            email_error = 'missing_resend_api_key'
        WHERE email = ?`
-    ).bind(email).run();
+    )
+      .bind(email)
+      .run();
 
     log("emailjob.skipped", { rid, reason: "missing_resend_api_key", totalMs: Date.now() - t0 });
     return { rid, status: "skipped", totalMs: Date.now() - t0 };
@@ -76,7 +86,9 @@ export async function processWaitlistEmailJob(env, job) {
            email_attempts = COALESCE(email_attempts, 0),
            next_email_attempt_at = NULL
        WHERE email = ?`
-    ).bind(resendId, email).run();
+    )
+      .bind(resendId, email)
+      .run();
 
     const totalMs = Date.now() - t0;
     log("emailjob.sent", { rid, resendId, totalMs });
@@ -87,7 +99,9 @@ export async function processWaitlistEmailJob(env, job) {
     // 4) backoff retry
     const row = await env.DB.prepare(
       `SELECT COALESCE(email_attempts, 0) AS attempts FROM waitlist WHERE email = ?`
-    ).bind(email).first();
+    )
+      .bind(email)
+      .first();
 
     const attempts = Number(row?.attempts || 0) + 1;
 
@@ -101,7 +115,9 @@ export async function processWaitlistEmailJob(env, job) {
            email_attempts = ?,
            next_email_attempt_at = ?
        WHERE email = ?`
-    ).bind(terminal ? "failed" : "pending", errMsg, attempts, nextAt, email).run();
+    )
+      .bind(terminal ? "failed" : "pending", errMsg, attempts, nextAt, email)
+      .run();
 
     const totalMs = Date.now() - t0;
     log("emailjob.fail", { rid, attempts, nextAt, error: errMsg, totalMs });
@@ -114,11 +130,11 @@ function domain(email) {
 }
 
 function computeNextAttemptUtc(attempts) {
-  // exponential backoff in minutes: 1, 2, 4, 8, 16, ... capped at 60
   const minutes = Math.min(60, Math.pow(2, attempts - 1));
   const d = new Date(Date.now() + minutes * 60_000);
 
   const pad = (n) => String(n).padStart(2, "0");
-  // SQLite datetime string: "YYYY-MM-DD HH:MM:SS"
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(
+    d.getUTCHours()
+  )}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }

@@ -64,9 +64,13 @@ if (form) {
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Failed to join waitlist");
 
-      setMsg(data?.message || "You're on the list ✅", "ok");
+      if (!res.ok || data.ok === false) {
+        throw new Error(data?.error || "Failed to join waitlist");
+      }
+
+      setMsg(data.message, "ok");
+
 
       // Clear form
       emailInput.value = "";
