@@ -42,6 +42,12 @@ const ALLOWED_FLEET_SIZES = new Set([
 
 export async function onRequestPost({ request, env }) {
   const rid = crypto.randomUUID();
+  const t0 = Date.now(); // total request timer
+
+  let dbWriteMs = null;
+  let resendMs = null;
+  let statusWriteMs = null;
+
   const url = new URL(request.url);
   const path = url.pathname;
 
@@ -75,7 +81,7 @@ export async function onRequestPost({ request, env }) {
       emailDomain: email.includes("@") ? email.split("@")[1] : null,
     });
 
-    // Validate input
+    // Validation
     if (!isValidEmail(email)) {
       log("waitlist.validation.fail", { rid, field: "email" });
       return json(
@@ -103,8 +109,11 @@ export async function onRequestPost({ request, env }) {
       );
     }
 
-    // Insert + increment atomically
+    // =========================
+    // DB WRITE (timed)
+    // =========================
     log("waitlist.db.write.start", { rid });
+    const tDb0 = Date.now();
 
     try {
       await env.DB.batch([
@@ -113,20 +122,29 @@ export async function onRequestPost({ request, env }) {
            VALUES (?, ?, ?, ?, ?, ?)`
         ).bind(email, role, fleetSize, companyName, ip, userAgent),
 
-        env.DB.prepare(`UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`),
+        env.DB.prepare(
+          `UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`
+        ),
       ]);
 
-      log("waitlist.db.write.ok", { rid });
+      dbWriteMs = Date.now() - tDb0;
+      log("waitlist.db.write.ok", { rid, dbWriteMs });
     } catch (e) {
+      dbWriteMs = Date.now() - tDb0;
       const msg = String(e?.message || e);
       const isDup =
         msg.includes("UNIQUE constraint failed") ||
         msg.toLowerCase().includes("unique");
 
       if (isDup) {
-        log("waitlist.duplicate", { rid });
-
-        log("waitlist.result", { rid, status: "already_joined" });
+        const totalMs = Date.now() - t0;
+        log("waitlist.duplicate", { rid, dbWriteMs });
+        log("waitlist.result", {
+          rid,
+          status: "already_joined",
+          dbWriteMs,
+          totalMs,
+        });
 
         return json(
           200,
@@ -140,9 +158,18 @@ export async function onRequestPost({ request, env }) {
         );
       }
 
-      log("waitlist.db.write.fail", { rid, error: msg.slice(0, 300) });
-
-      log("waitlist.result", { rid, status: "db_error" });
+      const totalMs = Date.now() - t0;
+      log("waitlist.db.write.fail", {
+        rid,
+        dbWriteMs,
+        error: msg.slice(0, 300),
+      });
+      log("waitlist.result", {
+        rid,
+        status: "db_error",
+        dbWriteMs,
+        totalMs,
+      });
 
       return json(
         500,
@@ -151,26 +178,24 @@ export async function onRequestPost({ request, env }) {
       );
     }
 
-    // Email flow (only after successful insert)
+    // =========================
+    // EMAIL FLOW
+    // =========================
     const apiKey = env.RESEND_API_KEY;
     if (!apiKey) {
-      log("waitlist.email.skipped", { rid, reason: "missing_resend_api_key" });
+      const totalMs = Date.now() - t0;
 
-      // Persist skipped status (optional but useful)
-      try {
-        await env.DB.prepare(
-          `UPDATE waitlist
-           SET email_status = ?
-           WHERE email = ?`
-        ).bind("skipped", email).run();
-      } catch (e) {
-        log("waitlist.email.status_write.fail", {
-          rid,
-          error: String(e?.message || e).slice(0, 300),
-        });
-      }
+      log("waitlist.email.skipped", {
+        rid,
+        reason: "missing_resend_api_key",
+      });
 
-      log("waitlist.result", { rid, status: "joined_email_skipped" });
+      log("waitlist.result", {
+        rid,
+        status: "joined_email_skipped",
+        dbWriteMs,
+        totalMs,
+      });
 
       return json(
         200,
@@ -185,7 +210,6 @@ export async function onRequestPost({ request, env }) {
     }
 
     const from = env.RESEND_FROM || "Rootfleet <noreply@rootfleet.com>";
-
     const { subject, html, text } = buildWaitlistConfirmationEmail({
       email,
       role,
@@ -198,6 +222,12 @@ export async function onRequestPost({ request, env }) {
       toDomain: email.split("@")[1] || null,
     });
 
+    // =========================
+    // RESEND (timed)
+    // =========================
+    const tResend0 = Date.now();
+    let resendId = null;
+
     try {
       const result = await sendResendEmail({
         rid,
@@ -209,30 +239,40 @@ export async function onRequestPost({ request, env }) {
         text,
       });
 
-      const resendId = result?.id || null;
+      resendMs = Date.now() - tResend0;
+      resendId = result?.id || null;
+      log("resend.timing", { rid, resendMs });
 
-      // Persist message id + status
-      try {
-        await env.DB.prepare(
-          `UPDATE waitlist
-           SET resend_message_id = ?,
-               email_status = ?,
-               email_error = NULL,
-               email_sent_at = datetime('now')
-           WHERE email = ?`
-        ).bind(resendId, "sent", email).run();
+      // =========================
+      // STATUS WRITE (timed)
+      // =========================
+      const tStatus0 = Date.now();
+      await env.DB.prepare(
+        `UPDATE waitlist
+         SET resend_message_id = ?,
+             email_status = ?,
+             email_error = NULL,
+             email_sent_at = datetime('now')
+         WHERE email = ?`
+      ).bind(resendId, "sent", email).run();
 
-        log("waitlist.email.status_write.ok", { rid, resendId });
-      } catch (e) {
-        log("waitlist.email.status_write.fail", {
-          rid,
-          error: String(e?.message || e).slice(0, 300),
-        });
-      }
+      statusWriteMs = Date.now() - tStatus0;
+      log("waitlist.email.status_write.ok", {
+        rid,
+        resendId,
+        statusWriteMs,
+      });
 
-      log("waitlist.email.send.ok", { rid, resendId });
-
-      log("waitlist.result", { rid, status: "joined", resendId });
+      const totalMs = Date.now() - t0;
+      log("waitlist.result", {
+        rid,
+        status: "joined",
+        resendId,
+        dbWriteMs,
+        resendMs,
+        statusWriteMs,
+        totalMs,
+      });
 
       return json(
         200,
@@ -246,26 +286,34 @@ export async function onRequestPost({ request, env }) {
         { "x-request-id": rid }
       );
     } catch (e) {
+      resendMs = Date.now() - tResend0;
       const errMsg = String(e?.message || e).slice(0, 300);
 
-      log("waitlist.email.send.fail", { rid, error: errMsg });
+      log("waitlist.email.send.fail", {
+        rid,
+        resendMs,
+        error: errMsg,
+      });
 
-      // Persist failure status (signup already recorded)
       try {
+        const tStatus0 = Date.now();
         await env.DB.prepare(
           `UPDATE waitlist
-           SET email_status = ?,
-               email_error = ?
+           SET email_status = ?, email_error = ?
            WHERE email = ?`
         ).bind("failed", errMsg, email).run();
-      } catch (dbErr) {
-        log("waitlist.email.status_write.fail", {
-          rid,
-          error: String(dbErr?.message || dbErr).slice(0, 300),
-        });
-      }
+        statusWriteMs = Date.now() - tStatus0;
+      } catch {}
 
-      log("waitlist.result", { rid, status: "joined_email_failed" });
+      const totalMs = Date.now() - t0;
+      log("waitlist.result", {
+        rid,
+        status: "joined_email_failed",
+        dbWriteMs,
+        resendMs,
+        statusWriteMs,
+        totalMs,
+      });
 
       return json(
         200,
@@ -279,11 +327,12 @@ export async function onRequestPost({ request, env }) {
       );
     }
   } catch (err) {
-    const msg = String(err?.message || err).slice(0, 300);
-
-    log("waitlist.unhandled.fail", { rid, error: msg });
-
-    log("waitlist.result", { rid, status: "server_error" });
+    const totalMs = Date.now() - t0;
+    log("waitlist.unhandled.fail", {
+      rid,
+      error: String(err?.message || err).slice(0, 300),
+      totalMs,
+    });
 
     return json(
       500,
