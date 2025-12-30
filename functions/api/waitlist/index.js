@@ -1,6 +1,6 @@
+import { log } from "../../lib/log.js";
 import { sendResendEmail } from "../../lib/resend.js";
 import { buildWaitlistConfirmationEmail } from "../../templates/waitlistConfirmationEmail.js";
-
 
 function json(status, body, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -41,6 +41,20 @@ const ALLOWED_FLEET_SIZES = new Set([
 ]);
 
 export async function onRequestPost({ request, env }) {
+  const rid = crypto.randomUUID();
+  const path = new URL(request.url).pathname;
+
+  const ip = getClientIp(request);
+  const userAgent = request.headers.get("User-Agent") || null;
+
+  log("waitlist.request", {
+    rid,
+    method: request.method,
+    path,
+    ip,
+    ua: userAgent,
+  });
+
   try {
     const body = await request.json().catch(() => ({}));
 
@@ -48,26 +62,49 @@ export async function onRequestPost({ request, env }) {
     const role = String(body.role || "").trim();
     const fleetSize = String(body.fleetSize || "").trim();
 
-    const companyNameRaw = body.companyName == null ? "" : String(body.companyName);
+    const companyNameRaw =
+      body.companyName == null ? "" : String(body.companyName);
     const companyName = companyNameRaw.trim() ? companyNameRaw.trim() : null;
 
-    // Validate input
+    log("waitlist.parsed", {
+      rid,
+      role,
+      fleetSize,
+      hasCompanyName: !!companyName,
+      emailDomain: email.includes("@") ? email.split("@")[1] : null,
+    });
+
+    // Validation
     if (!isValidEmail(email)) {
-      return json(400, { ok: false, error: "Please enter a valid email." });
+      log("waitlist.validation.fail", { rid, field: "email" });
+      return json(
+        400,
+        { ok: false, error: "Please enter a valid email.", rid },
+        { "x-request-id": rid }
+      );
     }
+
     if (!ALLOWED_ROLES.has(role)) {
-      return json(400, { ok: false, error: "Please select a valid role." });
+      log("waitlist.validation.fail", { rid, field: "role" });
+      return json(
+        400,
+        { ok: false, error: "Please select a valid role.", rid },
+        { "x-request-id": rid }
+      );
     }
+
     if (!ALLOWED_FLEET_SIZES.has(fleetSize)) {
-      return json(400, { ok: false, error: "Please select a valid fleet size." });
+      log("waitlist.validation.fail", { rid, field: "fleetSize" });
+      return json(
+        400,
+        { ok: false, error: "Please select a valid fleet size.", rid },
+        { "x-request-id": rid }
+      );
     }
 
-    // Metadata (optional)
-    const ip = getClientIp(request);
-    const userAgent = request.headers.get("User-Agent") || null;
+    // DB write
+    log("waitlist.db.write.start", { rid });
 
-    // Insert + increment count atomically via batch
-    // - If INSERT fails due to UNIQUE(email), batch throws and count is NOT incremented.
     try {
       await env.DB.batch([
         env.DB.prepare(
@@ -75,36 +112,63 @@ export async function onRequestPost({ request, env }) {
            VALUES (?, ?, ?, ?, ?, ?)`
         ).bind(email, role, fleetSize, companyName, ip, userAgent),
 
-        env.DB.prepare(`UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`),
+        env.DB.prepare(
+          `UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`
+        ),
       ]);
+
+      log("waitlist.db.write.ok", { rid });
     } catch (e) {
       const msg = String(e?.message || e);
-      const isDup = msg.includes("UNIQUE constraint failed") || msg.toLowerCase().includes("unique");
+      const isDup =
+        msg.includes("UNIQUE constraint failed") ||
+        msg.toLowerCase().includes("unique");
 
       if (isDup) {
-        // Friendly idempotent response: already signed up
-        return json(200, {
-          ok: true,
-          status: "already_joined",
-          message: "You're already on the list ✅",
-        });
+        log("waitlist.duplicate", { rid });
+
+        return json(
+          200,
+          {
+            ok: true,
+            status: "already_joined",
+            message: "You're already on the list ✅",
+            rid,
+          },
+          { "x-request-id": rid }
+        );
       }
 
-      // Unexpected DB error
-      return json(500, { ok: false, error: "Database error. Please try again." });
+      log("waitlist.db.write.fail", {
+        rid,
+        error: msg.slice(0, 300),
+      });
+
+      return json(
+        500,
+        { ok: false, error: "Database error. Please try again.", rid },
+        { "x-request-id": rid }
+      );
     }
 
-    // Only send confirmation email after a successful INSERT (first-time signup)
+    // Email
     const apiKey = env.RESEND_API_KEY;
     if (!apiKey) {
-      // This is a server misconfig; signup is already recorded, but email won't send
-      // You can decide if you want to treat this as fatal; I recommend returning 200
-      // to avoid confusing the user.
-      return json(200, {
-        ok: true,
-        status: "joined_email_skipped",
-        message: "You're on the list ✅ (email system is being set up)",
+      log("waitlist.email.skipped", {
+        rid,
+        reason: "missing_resend_api_key",
       });
+
+      return json(
+        200,
+        {
+          ok: true,
+          status: "joined_email_skipped",
+          message: "You're on the list ✅ (email system is being set up)",
+          rid,
+        },
+        { "x-request-id": rid }
+      );
     }
 
     const from = env.RESEND_FROM || "Rootfleet <noreply@rootfleet.com>";
@@ -116,21 +180,63 @@ export async function onRequestPost({ request, env }) {
       companyName,
     });
 
-    await sendResendEmail({
-      apiKey,
-      from,
-      to: email,
-      subject,
-      html,
-      text,
+    log("waitlist.email.send.start", {
+      rid,
+      toDomain: email.split("@")[1] || null,
     });
 
-    return json(200, {
-      ok: true,
-      status: "joined",
-      message: "You're on the list ✅ (check your inbox)",
-    });
+    try {
+      await sendResendEmail({
+        apiKey,
+        from,
+        to: email,
+        subject,
+        html,
+        text,
+      });
+
+      log("waitlist.email.send.ok", { rid });
+    } catch (e) {
+      const msg = String(e?.message || e);
+      log("waitlist.email.send.fail", {
+        rid,
+        error: msg.slice(0, 300),
+      });
+
+      return json(
+        200,
+        {
+          ok: true,
+          status: "joined_email_failed",
+          message: "You're on the list ✅ (email delivery had an issue)",
+          rid,
+        },
+        { "x-request-id": rid }
+      );
+    }
+
+    return json(
+      200,
+      {
+        ok: true,
+        status: "joined",
+        message: "You're on the list ✅ (check your inbox)",
+        rid,
+      },
+      { "x-request-id": rid }
+    );
   } catch (err) {
-    return json(500, { ok: false, error: err?.message || "Server error" });
+    const msg = String(err?.message || err);
+
+    log("waitlist.unhandled.fail", {
+      rid,
+      error: msg.slice(0, 300),
+    });
+
+    return json(
+      500,
+      { ok: false, error: "Server error", rid },
+      { "x-request-id": rid }
+    );
   }
 }
