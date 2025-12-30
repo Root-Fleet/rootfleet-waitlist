@@ -18,12 +18,6 @@ function roleLabel(role) {
   return map[role] || "Other";
 }
 
-/**
- * Transactional confirmation email:
- * - short, clear, professional
- * - includes submitted info
- * - safe against HTML injection
- */
 export function buildWaitlistConfirmationEmail({
   email,
   role,
@@ -35,10 +29,9 @@ export function buildWaitlistConfirmationEmail({
   const safeRole = escapeHtml(roleLabel(role));
   const safeFleet = escapeHtml(fleetSize);
 
-  // Slightly clearer subject for inbox trust
   const subject = "Rootfleet — waitlist confirmation";
 
-  // Public https URL (must be accessible without auth)
+  // Prefer PNG for email compatibility
   const logoUrl = "https://waitlist.rootfleet.com/rootfleet-logo-512.png";
 
   const html = `
