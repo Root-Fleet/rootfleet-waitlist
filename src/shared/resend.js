@@ -9,10 +9,12 @@ export async function sendResendEmail({
   html,
   text,
 }) {
-  log("resend.send.start", {
-    rid,
-    toDomain: typeof to === "string" && to.includes("@") ? to.split("@")[1] : null,
-  });
+  const t0 = Date.now();
+
+  const toDomain =
+    typeof to === "string" && to.includes("@") ? to.split("@")[1] : null;
+
+  log("resend.send.start", { rid, toDomain });
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -31,9 +33,12 @@ export async function sendResendEmail({
     parsed = null;
   }
 
+  const resendMs = Date.now() - t0;
+
   if (!res.ok) {
     log("resend.send.fail", {
       rid,
+      resendMs,
       status: res.status,
       bodyPreview: raw ? raw.slice(0, 300) : "",
     });
@@ -42,6 +47,7 @@ export async function sendResendEmail({
 
   log("resend.send.ok", {
     rid,
+    resendMs,
     status: res.status,
     id: parsed?.id || null,
   });
