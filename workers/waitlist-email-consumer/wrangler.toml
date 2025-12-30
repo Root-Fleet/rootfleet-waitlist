@@ -1,9 +1,20 @@
-name = "rootfleet-waitlist"
+name = "waitlist-email-consumer"
+main = "src/index.js"
 compatibility_date = "2025-12-23"
 
-pages_build_output_dir = "public"
-
+# =========================
+# D1 database (Worker side)
+# =========================
 [[d1_databases]]
 binding = "DB"
 database_name = "rootfleet_waitlist"
 database_id = "0f85850c-0aaf-40f4-821a-061d3489968f"
+
+# =========================
+# Queue consumer
+# =========================
+[[queues.consumers]]
+queue = "waitlist-email-queue"
+max_batch_size = 10
+max_batch_timeout = 5
+
