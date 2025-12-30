@@ -187,6 +187,7 @@ export async function onRequestPost({ request, env }) {
 
     try {
       await sendResendEmail({
+        rid,
         apiKey,
         from,
         to: email,
