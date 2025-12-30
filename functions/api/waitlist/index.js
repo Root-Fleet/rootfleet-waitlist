@@ -107,7 +107,7 @@ export async function onRequestPost({ request, env, ctx }) {
     ctx.waitUntil(
       (async () => {
         log("waitlist.email.best_effort.start", { rid });
-        const result = await processWaitlistEmailJob(env, { rid, email, role, fleetSize, companyName });
+        const result = await processWaitlistEmailJob({ rid, email, role, fleetSize, companyName }, env, ctx);
         log("waitlist.email.best_effort.end", { rid, resultStatus: result.status });
       })()
     );
