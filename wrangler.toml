@@ -1,0 +1,29 @@
+name = "rootfleet-waitlist"
+compatibility_date = "2025-12-23"
+
+# Pages output
+pages_build_output_dir = "public"
+
+# =========================
+# D1 database (Pages side)
+# =========================
+[[d1_databases]]
+binding = "DB"
+database_name = "rootfleet_waitlist"
+database_id = "0f85850c-0aaf-40f4-821a-061d3489968f"
+
+# =========================
+# Queue producer (Phase 2)
+# =========================
+[[queues.producers]]
+queue = "waitlist-email-queue"
+binding = "WAITLIST_EMAIL_QUEUE"
+
+# =========================
+# Optional vars
+# =========================
+[vars]
+# Turn ON temporarily to measure stats update latency
+# "1" = measure synchronously
+# "0" = do stats in background only
+SYNC_STATS_TIMING = "0"
