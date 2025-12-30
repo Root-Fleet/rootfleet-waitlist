@@ -42,7 +42,8 @@ const ALLOWED_FLEET_SIZES = new Set([
 
 export async function onRequestPost({ request, env }) {
   const rid = crypto.randomUUID();
-  const path = new URL(request.url).pathname;
+  const url = new URL(request.url);
+  const path = url.pathname;
 
   const ip = getClientIp(request);
   const userAgent = request.headers.get("User-Agent") || null;
@@ -74,7 +75,7 @@ export async function onRequestPost({ request, env }) {
       emailDomain: email.includes("@") ? email.split("@")[1] : null,
     });
 
-    // Validation
+    // Validate input
     if (!isValidEmail(email)) {
       log("waitlist.validation.fail", { rid, field: "email" });
       return json(
@@ -102,7 +103,7 @@ export async function onRequestPost({ request, env }) {
       );
     }
 
-    // DB write
+    // Insert + increment atomically
     log("waitlist.db.write.start", { rid });
 
     try {
@@ -112,9 +113,7 @@ export async function onRequestPost({ request, env }) {
            VALUES (?, ?, ?, ?, ?, ?)`
         ).bind(email, role, fleetSize, companyName, ip, userAgent),
 
-        env.DB.prepare(
-          `UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`
-        ),
+        env.DB.prepare(`UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`),
       ]);
 
       log("waitlist.db.write.ok", { rid });
@@ -126,6 +125,8 @@ export async function onRequestPost({ request, env }) {
 
       if (isDup) {
         log("waitlist.duplicate", { rid });
+
+        log("waitlist.result", { rid, status: "already_joined" });
 
         return json(
           200,
@@ -139,10 +140,9 @@ export async function onRequestPost({ request, env }) {
         );
       }
 
-      log("waitlist.db.write.fail", {
-        rid,
-        error: msg.slice(0, 300),
-      });
+      log("waitlist.db.write.fail", { rid, error: msg.slice(0, 300) });
+
+      log("waitlist.result", { rid, status: "db_error" });
 
       return json(
         500,
@@ -151,13 +151,26 @@ export async function onRequestPost({ request, env }) {
       );
     }
 
-    // Email
+    // Email flow (only after successful insert)
     const apiKey = env.RESEND_API_KEY;
     if (!apiKey) {
-      log("waitlist.email.skipped", {
-        rid,
-        reason: "missing_resend_api_key",
-      });
+      log("waitlist.email.skipped", { rid, reason: "missing_resend_api_key" });
+
+      // Persist skipped status (optional but useful)
+      try {
+        await env.DB.prepare(
+          `UPDATE waitlist
+           SET email_status = ?
+           WHERE email = ?`
+        ).bind("skipped", email).run();
+      } catch (e) {
+        log("waitlist.email.status_write.fail", {
+          rid,
+          error: String(e?.message || e).slice(0, 300),
+        });
+      }
+
+      log("waitlist.result", { rid, status: "joined_email_skipped" });
 
       return json(
         200,
@@ -186,7 +199,7 @@ export async function onRequestPost({ request, env }) {
     });
 
     try {
-      await sendResendEmail({
+      const result = await sendResendEmail({
         rid,
         apiKey,
         from,
@@ -196,13 +209,63 @@ export async function onRequestPost({ request, env }) {
         text,
       });
 
-      log("waitlist.email.send.ok", { rid });
+      const resendId = result?.id || null;
+
+      // Persist message id + status
+      try {
+        await env.DB.prepare(
+          `UPDATE waitlist
+           SET resend_message_id = ?,
+               email_status = ?,
+               email_error = NULL,
+               email_sent_at = datetime('now')
+           WHERE email = ?`
+        ).bind(resendId, "sent", email).run();
+
+        log("waitlist.email.status_write.ok", { rid, resendId });
+      } catch (e) {
+        log("waitlist.email.status_write.fail", {
+          rid,
+          error: String(e?.message || e).slice(0, 300),
+        });
+      }
+
+      log("waitlist.email.send.ok", { rid, resendId });
+
+      log("waitlist.result", { rid, status: "joined", resendId });
+
+      return json(
+        200,
+        {
+          ok: true,
+          status: "joined",
+          message: "You're on the list ✅ (check your inbox)",
+          rid,
+          resendId,
+        },
+        { "x-request-id": rid }
+      );
     } catch (e) {
-      const msg = String(e?.message || e);
-      log("waitlist.email.send.fail", {
-        rid,
-        error: msg.slice(0, 300),
-      });
+      const errMsg = String(e?.message || e).slice(0, 300);
+
+      log("waitlist.email.send.fail", { rid, error: errMsg });
+
+      // Persist failure status (signup already recorded)
+      try {
+        await env.DB.prepare(
+          `UPDATE waitlist
+           SET email_status = ?,
+               email_error = ?
+           WHERE email = ?`
+        ).bind("failed", errMsg, email).run();
+      } catch (dbErr) {
+        log("waitlist.email.status_write.fail", {
+          rid,
+          error: String(dbErr?.message || dbErr).slice(0, 300),
+        });
+      }
+
+      log("waitlist.result", { rid, status: "joined_email_failed" });
 
       return json(
         200,
@@ -215,24 +278,12 @@ export async function onRequestPost({ request, env }) {
         { "x-request-id": rid }
       );
     }
-
-    return json(
-      200,
-      {
-        ok: true,
-        status: "joined",
-        message: "You're on the list ✅ (check your inbox)",
-        rid,
-      },
-      { "x-request-id": rid }
-    );
   } catch (err) {
-    const msg = String(err?.message || err);
+    const msg = String(err?.message || err).slice(0, 300);
 
-    log("waitlist.unhandled.fail", {
-      rid,
-      error: msg.slice(0, 300),
-    });
+    log("waitlist.unhandled.fail", { rid, error: msg });
+
+    log("waitlist.result", { rid, status: "server_error" });
 
     return json(
       500,
@@ -241,3 +292,4 @@ export async function onRequestPost({ request, env }) {
     );
   }
 }
+
