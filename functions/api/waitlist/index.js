@@ -1,14 +1,9 @@
 import { log } from "../../lib/log.js";
-import { sendResendEmail } from "../../lib/resend.js";
-import { buildWaitlistConfirmationEmail } from "../../templates/waitlistConfirmationEmail.js";
 
 function json(status, body, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...extraHeaders,
-    },
+    headers: { "content-type": "application/json; charset=utf-8", ...extraHeaders },
   });
 }
 
@@ -24,29 +19,25 @@ function getClientIp(request) {
   );
 }
 
-const ALLOWED_ROLES = new Set([
-  "fleet_owner",
-  "operations",
-  "fleet_staff",
-  "engineer",
-  "other",
-]);
+const ALLOWED_ROLES = new Set(["fleet_owner", "operations", "fleet_staff", "engineer", "other"]);
+const ALLOWED_FLEET_SIZES = new Set(["1-5", "6-20", "21-100", "101-500", "500+"]);
 
-const ALLOWED_FLEET_SIZES = new Set([
-  "1-5",
-  "6-20",
-  "21-100",
-  "101-500",
-  "500+",
-]);
-
+/**
+ * Phase 1: request returns fast after INSERT + enqueue
+ * Phase 2: queue consumer sends email + updates DB fields + (optional) stats
+ *
+ * Timing:
+ * - insertMs measured always
+ * - statsUpdateMs measured only if env.SYNC_STATS_TIMING === "1"
+ *   (use this temporarily to prove whether stats update contributes to slowness)
+ */
 export async function onRequestPost({ request, env }) {
   const rid = crypto.randomUUID();
-  const t0 = Date.now(); // total request timer
+  const t0 = Date.now();
 
-  let dbWriteMs = null;
-  let resendMs = null;
-  let statusWriteMs = null;
+  let insertMs = null;
+  let statsUpdateMs = null;
+  let enqueueMs = null;
 
   const url = new URL(request.url);
   const path = url.pathname;
@@ -54,13 +45,7 @@ export async function onRequestPost({ request, env }) {
   const ip = getClientIp(request);
   const userAgent = request.headers.get("User-Agent") || null;
 
-  log("waitlist.request", {
-    rid,
-    method: request.method,
-    path,
-    ip,
-    ua: userAgent,
-  });
+  log("waitlist.request", { rid, method: request.method, path, ip, ua: userAgent });
 
   try {
     const body = await request.json().catch(() => ({}));
@@ -69,8 +54,7 @@ export async function onRequestPost({ request, env }) {
     const role = String(body.role || "").trim();
     const fleetSize = String(body.fleetSize || "").trim();
 
-    const companyNameRaw =
-      body.companyName == null ? "" : String(body.companyName);
+    const companyNameRaw = body.companyName == null ? "" : String(body.companyName);
     const companyName = companyNameRaw.trim() ? companyNameRaw.trim() : null;
 
     log("waitlist.parsed", {
@@ -81,127 +65,93 @@ export async function onRequestPost({ request, env }) {
       emailDomain: email.includes("@") ? email.split("@")[1] : null,
     });
 
-    // Validation
+    // Validate
     if (!isValidEmail(email)) {
       log("waitlist.validation.fail", { rid, field: "email" });
-      return json(
-        400,
-        { ok: false, error: "Please enter a valid email.", rid },
-        { "x-request-id": rid }
-      );
+      return json(400, { ok: false, error: "Please enter a valid email.", rid }, { "x-request-id": rid });
     }
-
     if (!ALLOWED_ROLES.has(role)) {
       log("waitlist.validation.fail", { rid, field: "role" });
-      return json(
-        400,
-        { ok: false, error: "Please select a valid role.", rid },
-        { "x-request-id": rid }
-      );
+      return json(400, { ok: false, error: "Please select a valid role.", rid }, { "x-request-id": rid });
     }
-
     if (!ALLOWED_FLEET_SIZES.has(fleetSize)) {
       log("waitlist.validation.fail", { rid, field: "fleetSize" });
-      return json(
-        400,
-        { ok: false, error: "Please select a valid fleet size.", rid },
-        { "x-request-id": rid }
-      );
+      return json(400, { ok: false, error: "Please select a valid fleet size.", rid }, { "x-request-id": rid });
     }
 
     // =========================
-    // DB WRITE (timed)
+    // INSERT (timed separately)
     // =========================
-    log("waitlist.db.write.start", { rid });
-    const tDb0 = Date.now();
+    log("waitlist.db.insert.start", { rid });
+    const tIns0 = Date.now();
 
     try {
-      await env.DB.batch([
-        env.DB.prepare(
-          `INSERT INTO waitlist (email, role, fleet_size, company_name, ip, user_agent)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).bind(email, role, fleetSize, companyName, ip, userAgent),
+      await env.DB.prepare(
+        `INSERT INTO waitlist (email, role, fleet_size, company_name, ip, user_agent)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).bind(email, role, fleetSize, companyName, ip, userAgent).run();
 
-        env.DB.prepare(
-          `UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`
-        ),
-      ]);
-
-      dbWriteMs = Date.now() - tDb0;
-      log("waitlist.db.write.ok", { rid, dbWriteMs });
+      insertMs = Date.now() - tIns0;
+      log("waitlist.db.insert.ok", { rid, insertMs });
     } catch (e) {
-      dbWriteMs = Date.now() - tDb0;
+      insertMs = Date.now() - tIns0;
       const msg = String(e?.message || e);
       const isDup =
-        msg.includes("UNIQUE constraint failed") ||
-        msg.toLowerCase().includes("unique");
+        msg.includes("UNIQUE constraint failed") || msg.toLowerCase().includes("unique");
+
+      const totalMs = Date.now() - t0;
 
       if (isDup) {
-        const totalMs = Date.now() - t0;
-        log("waitlist.duplicate", { rid, dbWriteMs });
-        log("waitlist.result", {
-          rid,
-          status: "already_joined",
-          dbWriteMs,
-          totalMs,
-        });
-
+        log("waitlist.duplicate", { rid, insertMs });
+        log("waitlist.result", { rid, status: "already_joined", insertMs, totalMs });
         return json(
           200,
-          {
-            ok: true,
-            status: "already_joined",
-            message: "You're already on the list ✅",
-            rid,
-          },
+          { ok: true, status: "already_joined", message: "You're already on the list ✅", rid },
           { "x-request-id": rid }
         );
       }
 
-      const totalMs = Date.now() - t0;
-      log("waitlist.db.write.fail", {
-        rid,
-        dbWriteMs,
-        error: msg.slice(0, 300),
-      });
-      log("waitlist.result", {
-        rid,
-        status: "db_error",
-        dbWriteMs,
-        totalMs,
-      });
+      log("waitlist.db.insert.fail", { rid, insertMs, error: msg.slice(0, 300) });
+      log("waitlist.result", { rid, status: "db_error", insertMs, totalMs });
 
-      return json(
-        500,
-        { ok: false, error: "Database error. Please try again.", rid },
-        { "x-request-id": rid }
-      );
+      return json(500, { ok: false, error: "Database error. Please try again.", rid }, { "x-request-id": rid });
+    }
+
+    // ==========================================
+    // OPTIONAL: measure stats update synchronously
+    // (use temporarily to quantify its cost)
+    // ==========================================
+    if (env.SYNC_STATS_TIMING === "1") {
+      log("waitlist.db.stats_update.start", { rid });
+      const tStat0 = Date.now();
+
+      try {
+        await env.DB.prepare(
+          `UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`
+        ).run();
+
+        statsUpdateMs = Date.now() - tStat0;
+        log("waitlist.db.stats_update.ok", { rid, statsUpdateMs });
+      } catch (e) {
+        statsUpdateMs = Date.now() - tStat0;
+        log("waitlist.db.stats_update.fail", { rid, statsUpdateMs, error: String(e?.message || e).slice(0, 300) });
+        // IMPORTANT: we do NOT fail the request if stats update fails.
+      }
     }
 
     // =========================
-    // EMAIL FLOW
+    // Phase 2: enqueue background job
     // =========================
-    const apiKey = env.RESEND_API_KEY;
-    if (!apiKey) {
+    if (!env.WAITLIST_EMAIL_QUEUE) {
       const totalMs = Date.now() - t0;
-
-      log("waitlist.email.skipped", {
-        rid,
-        reason: "missing_resend_api_key",
-      });
-
-      log("waitlist.result", {
-        rid,
-        status: "joined_email_skipped",
-        dbWriteMs,
-        totalMs,
-      });
+      log("waitlist.queue.missing", { rid });
+      log("waitlist.result", { rid, status: "joined_queue_missing", insertMs, statsUpdateMs, totalMs });
 
       return json(
         200,
         {
           ok: true,
-          status: "joined_email_skipped",
+          status: "joined_queue_missing",
           message: "You're on the list ✅ (email system is being set up)",
           rid,
         },
@@ -209,136 +159,64 @@ export async function onRequestPost({ request, env }) {
       );
     }
 
-    const from = env.RESEND_FROM || "Rootfleet <noreply@rootfleet.com>";
-    const { subject, html, text } = buildWaitlistConfirmationEmail({
+    log("waitlist.queue.send.start", { rid });
+
+    const tQ0 = Date.now();
+    await env.WAITLIST_EMAIL_QUEUE.send({
+      rid,
       email,
       role,
       fleetSize,
       companyName,
+      // Also allow consumer to optionally do stats update:
+      doStatsUpdate: env.SYNC_STATS_TIMING !== "1", // if we didn't do it here, do it in background
     });
+    enqueueMs = Date.now() - tQ0;
 
-    log("waitlist.email.send.start", {
+    log("waitlist.email.enqueued", {
       rid,
+      enqueueMs,
       toDomain: email.split("@")[1] || null,
     });
 
-    // =========================
-    // RESEND (timed)
-    // =========================
-    const tResend0 = Date.now();
-    let resendId = null;
-
+    // Nice for support visibility: mark queued (best effort)
     try {
-      const result = await sendResendEmail({
-        rid,
-        apiKey,
-        from,
-        to: email,
-        subject,
-        html,
-        text,
-      });
-
-      resendMs = Date.now() - tResend0;
-      resendId = result?.id || null;
-      log("resend.timing", { rid, resendMs });
-
-      // =========================
-      // STATUS WRITE (timed)
-      // =========================
-      const tStatus0 = Date.now();
       await env.DB.prepare(
-        `UPDATE waitlist
-         SET resend_message_id = ?,
-             email_status = ?,
-             email_error = NULL,
-             email_sent_at = datetime('now')
-         WHERE email = ?`
-      ).bind(resendId, "sent", email).run();
-
-      statusWriteMs = Date.now() - tStatus0;
-      log("waitlist.email.status_write.ok", {
-        rid,
-        resendId,
-        statusWriteMs,
-      });
-
-      const totalMs = Date.now() - t0;
-      log("waitlist.result", {
-        rid,
-        status: "joined",
-        resendId,
-        dbWriteMs,
-        resendMs,
-        statusWriteMs,
-        totalMs,
-      });
-
-      return json(
-        200,
-        {
-          ok: true,
-          status: "joined",
-          message: "You're on the list ✅ (check your inbox)",
-          rid,
-          resendId,
-        },
-        { "x-request-id": rid }
-      );
+        `UPDATE waitlist SET email_status = ? WHERE email = ?`
+      ).bind("queued", email).run();
     } catch (e) {
-      resendMs = Date.now() - tResend0;
-      const errMsg = String(e?.message || e).slice(0, 300);
-
-      log("waitlist.email.send.fail", {
-        rid,
-        resendMs,
-        error: errMsg,
-      });
-
-      try {
-        const tStatus0 = Date.now();
-        await env.DB.prepare(
-          `UPDATE waitlist
-           SET email_status = ?, email_error = ?
-           WHERE email = ?`
-        ).bind("failed", errMsg, email).run();
-        statusWriteMs = Date.now() - tStatus0;
-      } catch {}
-
-      const totalMs = Date.now() - t0;
-      log("waitlist.result", {
-        rid,
-        status: "joined_email_failed",
-        dbWriteMs,
-        resendMs,
-        statusWriteMs,
-        totalMs,
-      });
-
-      return json(
-        200,
-        {
-          ok: true,
-          status: "joined_email_failed",
-          message: "You're on the list ✅ (email delivery had an issue)",
-          rid,
-        },
-        { "x-request-id": rid }
-      );
+      log("waitlist.email.status_write.fail", { rid, error: String(e?.message || e).slice(0, 300) });
     }
-  } catch (err) {
+
+    // =========================
+    // Phase 1: return fast
+    // =========================
     const totalMs = Date.now() - t0;
-    log("waitlist.unhandled.fail", {
+    log("waitlist.result", {
       rid,
-      error: String(err?.message || err).slice(0, 300),
+      status: "joined",
+      insertMs,
+      statsUpdateMs,
+      enqueueMs,
       totalMs,
     });
 
     return json(
-      500,
-      { ok: false, error: "Server error", rid },
+      200,
+      {
+        ok: true,
+        status: "joined",
+        message: "You're on the list ✅ (check your inbox soon)",
+        rid,
+      },
       { "x-request-id": rid }
     );
+  } catch (err) {
+    const totalMs = Date.now() - t0;
+    log("waitlist.unhandled.fail", { rid, error: String(err?.message || err).slice(0, 300), totalMs });
+
+    return json(500, { ok: false, error: "Server error", rid }, { "x-request-id": rid });
   }
 }
+
 
