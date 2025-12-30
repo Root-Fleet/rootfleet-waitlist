@@ -1,5 +1,6 @@
-import { log } from "../../../src/shared/log.js";
-import { processWaitlistEmailJob } from "../../../src/shared/waitlistEmailJob.js";
+import { log } from "../../../functions/_shared/log.js";
+import { processWaitlistEmailJob } from "../../../functions/_shared/waitlistEmailJob.js";
+
 
 export default {
   async scheduled(event, env, ctx) {

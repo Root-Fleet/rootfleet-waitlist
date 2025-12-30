@@ -1,4 +1,4 @@
-import { log } from "../../../src/shared/log.js";
+import { log } from "../../../_shared/log.js";
 
 function json(status, body) {
   return new Response(JSON.stringify(body), {
