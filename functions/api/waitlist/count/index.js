@@ -7,7 +7,7 @@ function json(status, body) {
   });
 }
 
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet({ env }) {
   const rid = crypto.randomUUID();
   const t0 = Date.now();
 
@@ -15,13 +15,10 @@ export async function onRequestGet({ request, env }) {
     const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM waitlist`).first();
     const count = Number(row?.count || 0);
 
-    const totalMs = Date.now() - t0;
-    log("waitlist.count.result", { rid, count, totalMs });
-
+    log("waitlist.count.result", { rid, count, totalMs: Date.now() - t0 });
     return json(200, { ok: true, count, rid });
   } catch (e) {
-    const totalMs = Date.now() - t0;
-    log("waitlist.count.fail", { rid, error: String(e?.message || e).slice(0, 300), totalMs });
+    log("waitlist.count.fail", { rid, error: String(e?.message || e).slice(0, 300), totalMs: Date.now() - t0 });
     return json(500, { ok: false, error: "Server error", rid });
   }
 }
