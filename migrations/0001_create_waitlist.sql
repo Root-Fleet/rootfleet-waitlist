@@ -10,7 +10,13 @@ CREATE TABLE waitlist (
     company_name TEXT,
     created_at TEXT NOT NULL DEFAULT(datetime('now')),
     ip TEXT,
-    user_agent TEXT
+    user_agent TEXT,
+
+-- NEW: email observability fields
+resend_message_id TEXT,
+    email_status TEXT,     -- "sent" | "failed" | "skipped"
+    email_error TEXT,      -- short error string (truncated)
+    email_sent_at TEXT     -- when we marked as sent (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_waitlist_created_at ON waitlist (created_at);
