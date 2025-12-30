@@ -1,5 +1,5 @@
-import { log } from "../../../src/shared/log.js";
-import { processWaitlistEmailJob } from "../../../src/shared/waitlistEmailJob.js";
+import { log } from "../../_shared/log.js";
+import { processWaitlistEmailJob } from "../../_shared/waitlistEmailJob.js";
 
 function json(status, body, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
