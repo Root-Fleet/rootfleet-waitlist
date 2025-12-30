@@ -22,15 +22,23 @@ function roleLabel(role) {
  * Transactional confirmation email:
  * - short, clear, professional
  * - includes submitted info
+ * - safe against HTML injection
  */
-export function buildWaitlistConfirmationEmail({ email, role, fleetSize, companyName }) {
-  const safeCompany = companyName ? escapeHtml(companyName) : "Rootfleet";
+export function buildWaitlistConfirmationEmail({
+  email,
+  role,
+  fleetSize,
+  companyName,
+}) {
+  const safeEmail = escapeHtml(email);
+  const safeCompany = companyName ? escapeHtml(companyName) : "—";
   const safeRole = escapeHtml(roleLabel(role));
   const safeFleet = escapeHtml(fleetSize);
 
-  const subject = "Rootfleet waitlist confirmation";
+  // Slightly clearer subject for inbox trust
+  const subject = "Rootfleet — waitlist confirmation";
 
-  // IMPORTANT: public https URL
+  // Public https URL (must be accessible without auth)
   const logoUrl = "https://waitlist.rootfleet.com/rootfleet-logo-512.png";
 
   const html = `
@@ -47,7 +55,7 @@ export function buildWaitlistConfirmationEmail({ email, role, fleetSize, company
 
       <div style="margin:16px 0; padding:12px 14px; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:10px;">
         <div style="font-size:13px; color:#475569; font-weight:600; margin-bottom:6px;">Your details</div>
-        <div style="font-size:13px; color:#475569;">Email: <strong style="color:#0f172a;">${escapeHtml(email)}</strong></div>
+        <div style="font-size:13px; color:#475569;">Email: <strong style="color:#0f172a;">${safeEmail}</strong></div>
         <div style="font-size:13px; color:#475569;">Role: <strong style="color:#0f172a;">${safeRole}</strong></div>
         <div style="font-size:13px; color:#475569;">Fleet size: <strong style="color:#0f172a;">${safeFleet}</strong></div>
         <div style="font-size:13px; color:#475569;">Company: <strong style="color:#0f172a;">${safeCompany}</strong></div>
