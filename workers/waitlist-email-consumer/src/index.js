@@ -1,46 +1,43 @@
 import { log } from "../../../functions/_shared/log.js";
 import { processWaitlistEmailJob } from "../../../functions/_shared/waitlistEmailJob.js";
 
-
 export default {
-  async scheduled(event, env, ctx) {
-    const runId = crypto.randomUUID();
-    const t0 = Date.now();
+  /**
+   * Required so `wrangler dev` can start an HTTP server.
+   * This worker is background-focused, so this is just a health check.
+   */
+  async fetch(request, env, ctx) {
+    return new Response("waitlist-email-consumer running ✅", {
+      status: 200,
+    });
+  },
 
-    log("cron.run.start", { runId, cron: event.cron });
+  /**
+   * Queue consumer
+   */
+  async queue(batch, env, ctx) {
+    for (const message of batch.messages) {
+      try {
+        await processWaitlistEmailJob(message.body, env, ctx);
+        message.ack();
+      } catch (err) {
+        log("queue job failed", {
+          error: err?.message ?? err,
+          body: message.body,
+        });
 
-    const batchSize = Number(env.CRON_BATCH_SIZE || 10);
-
-    const rows = await env.DB.prepare(
-      `
-      SELECT email, role, fleet_size AS fleetSize, company_name AS companyName
-      FROM waitlist
-      WHERE (email_status IS NULL OR email_status = 'pending')
-        AND (next_email_attempt_at IS NULL OR next_email_attempt_at <= datetime('now'))
-      ORDER BY created_at ASC
-      LIMIT ?
-      `
-    ).bind(batchSize).all();
-
-    const jobs = rows?.results || [];
-    log("cron.run.found", { runId, count: jobs.length });
-
-    for (const job of jobs) {
-      ctx.waitUntil(
-        (async () => {
-          const rid = crypto.randomUUID();
-          log("cron.job.start", { runId, rid, emailDomain: domain(job.email) });
-          const res = await processWaitlistEmailJob(env, { rid, ...job });
-          log("cron.job.end", { runId, rid, status: res.status });
-        })()
-      );
+        // Let Cloudflare retry the message
+        message.retry();
+      }
     }
+  },
 
-    log("cron.run.end", { runId, scheduledMs: Date.now() - t0 });
+  /**
+   * Scheduled / cron handler (optional)
+   */
+
+  async scheduled(event, env, ctx) {
+    log("scheduled tick", { cron: event.cron });
   },
 };
-
-function domain(email) {
-  return String(email || "").includes("@") ? String(email).split("@")[1] : null;
-}
 
