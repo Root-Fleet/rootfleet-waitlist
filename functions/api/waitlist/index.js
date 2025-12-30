@@ -22,15 +22,6 @@ function getClientIp(request) {
 const ALLOWED_ROLES = new Set(["fleet_owner", "operations", "fleet_staff", "engineer", "other"]);
 const ALLOWED_FLEET_SIZES = new Set(["1-5", "6-20", "21-100", "101-500", "500+"]);
 
-/**
- * Phase 1: request returns fast after INSERT + enqueue
- * Phase 2: queue consumer sends email + updates DB fields + (optional) stats
- *
- * Timing:
- * - insertMs measured always
- * - statsUpdateMs measured only if env.SYNC_STATS_TIMING === "1"
- *   (use this temporarily to prove whether stats update contributes to slowness)
- */
 export async function onRequestPost({ request, env }) {
   const rid = crypto.randomUUID();
   const t0 = Date.now();
@@ -80,16 +71,16 @@ export async function onRequestPost({ request, env }) {
     }
 
     // =========================
-    // INSERT (timed separately)
+    // INSERT (timed)
     // =========================
     log("waitlist.db.insert.start", { rid });
     const tIns0 = Date.now();
 
     try {
       await env.DB.prepare(
-        `INSERT INTO waitlist (email, role, fleet_size, company_name, ip, user_agent)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).bind(email, role, fleetSize, companyName, ip, userAgent).run();
+        `INSERT INTO waitlist (email, role, fleet_size, company_name, ip, user_agent, email_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).bind(email, role, fleetSize, companyName, ip, userAgent, "queued").run();
 
       insertMs = Date.now() - tIns0;
       log("waitlist.db.insert.ok", { rid, insertMs });
@@ -118,29 +109,31 @@ export async function onRequestPost({ request, env }) {
     }
 
     // ==========================================
-    // OPTIONAL: measure stats update synchronously
-    // (use temporarily to quantify its cost)
+    // Optional measurement: stats update (timed)
+    // Turn ON temporarily: SYNC_STATS_TIMING="1"
     // ==========================================
-    if (env.SYNC_STATS_TIMING === "1") {
+    const measuredStatsSync = env.SYNC_STATS_TIMING === "1";
+    if (measuredStatsSync) {
       log("waitlist.db.stats_update.start", { rid });
       const tStat0 = Date.now();
 
       try {
-        await env.DB.prepare(
-          `UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`
-        ).run();
-
+        await env.DB.prepare(`UPDATE waitlist_stats SET count = count + 1 WHERE id = 1`).run();
         statsUpdateMs = Date.now() - tStat0;
         log("waitlist.db.stats_update.ok", { rid, statsUpdateMs });
       } catch (e) {
         statsUpdateMs = Date.now() - tStat0;
-        log("waitlist.db.stats_update.fail", { rid, statsUpdateMs, error: String(e?.message || e).slice(0, 300) });
-        // IMPORTANT: we do NOT fail the request if stats update fails.
+        log("waitlist.db.stats_update.fail", {
+          rid,
+          statsUpdateMs,
+          error: String(e?.message || e).slice(0, 300),
+        });
+        // Do not fail signup because stats failed
       }
     }
 
     // =========================
-    // Phase 2: enqueue background job
+    // Phase 2: enqueue job
     // =========================
     if (!env.WAITLIST_EMAIL_QUEUE) {
       const totalMs = Date.now() - t0;
@@ -149,66 +142,37 @@ export async function onRequestPost({ request, env }) {
 
       return json(
         200,
-        {
-          ok: true,
-          status: "joined_queue_missing",
-          message: "You're on the list ✅ (email system is being set up)",
-          rid,
-        },
+        { ok: true, status: "joined_queue_missing", message: "You're on the list ✅ (email system is being set up)", rid },
         { "x-request-id": rid }
       );
     }
 
     log("waitlist.queue.send.start", { rid });
-
     const tQ0 = Date.now();
+
     await env.WAITLIST_EMAIL_QUEUE.send({
       rid,
       email,
       role,
       fleetSize,
       companyName,
-      // Also allow consumer to optionally do stats update:
-      doStatsUpdate: env.SYNC_STATS_TIMING !== "1", // if we didn't do it here, do it in background
+      // If we DIDN'T do stats synchronously, do it in the consumer safely:
+      doStatsUpdate: !measuredStatsSync,
     });
+
     enqueueMs = Date.now() - tQ0;
 
-    log("waitlist.email.enqueued", {
-      rid,
-      enqueueMs,
-      toDomain: email.split("@")[1] || null,
-    });
-
-    // Nice for support visibility: mark queued (best effort)
-    try {
-      await env.DB.prepare(
-        `UPDATE waitlist SET email_status = ? WHERE email = ?`
-      ).bind("queued", email).run();
-    } catch (e) {
-      log("waitlist.email.status_write.fail", { rid, error: String(e?.message || e).slice(0, 300) });
-    }
+    log("waitlist.email.enqueued", { rid, enqueueMs, toDomain: email.split("@")[1] || null });
 
     // =========================
     // Phase 1: return fast
     // =========================
     const totalMs = Date.now() - t0;
-    log("waitlist.result", {
-      rid,
-      status: "joined",
-      insertMs,
-      statsUpdateMs,
-      enqueueMs,
-      totalMs,
-    });
+    log("waitlist.result", { rid, status: "joined", insertMs, statsUpdateMs, enqueueMs, totalMs });
 
     return json(
       200,
-      {
-        ok: true,
-        status: "joined",
-        message: "You're on the list ✅ (check your inbox soon)",
-        rid,
-      },
+      { ok: true, status: "joined", message: "You're on the list ✅ (check your inbox soon)", rid },
       { "x-request-id": rid }
     );
   } catch (err) {
