@@ -173,7 +173,14 @@ export async function onRequestPost({ request, env, ctx }) {
     // Queue: enqueue + trigger drain (near-instant)
     // ───────────────────
     try {
-      await enqueueWaitlistEmail(env, { rid, email, role, fleetSize, companyName });
+      await enqueueWaitlistEmail(env, {
+        rid,
+        email,
+        role,
+        fleetSize,
+        companyName,
+        emailSource: "trigger", });
+
       log("waitlist.queue.enqueued", { rid });
 
       // fire-and-forget trigger to drain queue now (do not block response)

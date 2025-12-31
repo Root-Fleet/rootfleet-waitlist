@@ -19,6 +19,11 @@ export async function processWaitlistEmailJob(job, env, ctx) {
   const fleetSize = String(job?.fleetSize || "").trim();
   const companyName = job?.companyName ?? null;
 
+  const emailSource =
+    job?.emailSource === "trigger" || job?.emailSource === "cron"
+      ? job.emailSource
+      : "cron"; // default-safe
+
   if (!email) {
     log("emailjob.invalid", { rid, reason: "missing_email" });
     return { rid, status: "invalid_job", totalMs: Date.now() - t0 };
@@ -27,11 +32,13 @@ export async function processWaitlistEmailJob(job, env, ctx) {
   // 1) claim the row (avoid duplicate sends)
   const claimRes = await env.DB.prepare(
     `UPDATE waitlist
-     SET email_status = 'processing'
+     SET email_status = 'processing',
+         email_source = ?
      WHERE email = ?
-       AND (email_status IS NULL OR email_status = 'pending')`
+       AND (email_status IS NULL OR email_status = 'pending')
+       AND Resend_message_id IS NULL`
   )
-    .bind(email)
+    .bind(emailSource, email)
     .run();
 
   const claimed = Number(claimRes?.meta?.changes || 0) === 1;
@@ -45,10 +52,11 @@ export async function processWaitlistEmailJob(job, env, ctx) {
     await env.DB.prepare(
       `UPDATE waitlist
        SET email_status = 'skipped',
-           email_error = 'missing_resend_api_key'
+           email_error = 'missing_resend_api_key',
+           email_source = ?
        WHERE email = ?`
     )
-      .bind(email)
+      .bind(emailSource, email)
       .run();
 
     log("emailjob.skipped", { rid, reason: "missing_resend_api_key", totalMs: Date.now() - t0 });
@@ -84,15 +92,16 @@ export async function processWaitlistEmailJob(job, env, ctx) {
            email_error = NULL,
            email_sent_at = datetime('now'),
            email_attempts = COALESCE(email_attempts, 0),
-           next_email_attempt_at = NULL
+           next_email_attempt_at = NULL,
+           email_source = ?
        WHERE email = ?`
     )
-      .bind(resendId, email)
+      .bind(resendId, emailSource, email)
       .run();
 
     const totalMs = Date.now() - t0;
-    log("emailjob.sent", { rid, resendId, totalMs });
-    return { rid, status: "sent", resendId, totalMs };
+    log("emailjob.sent", { rid, resendId, emailSource, totalMs });
+    return { rid, status: "sent", resendId, emailSource, totalMs };
   } catch (e) {
     const errMsg = String(e?.message || e).slice(0, 300);
 
@@ -113,15 +122,16 @@ export async function processWaitlistEmailJob(job, env, ctx) {
        SET email_status = ?,
            email_error = ?,
            email_attempts = ?,
-           next_email_attempt_at = ?
+           next_email_attempt_at = ?,
+           email_source = ?
        WHERE email = ?`
     )
-      .bind(terminal ? "failed" : "pending", errMsg, attempts, nextAt, email)
+      .bind(terminal ? "failed" : "pending", errMsg, attempts, nextAt, emailSource, email)
       .run();
 
     const totalMs = Date.now() - t0;
-    log("emailjob.fail", { rid, attempts, nextAt, error: errMsg, totalMs });
-    return { rid, status: terminal ? "failed" : "pending_retry", attempts, nextAt, totalMs };
+    log("emailjob.fail", { rid, attempts, nextAt, emailSource, error: errMsg, totalMs });
+    return { rid, status: terminal ? "failed" : "pending_retry", attempts, nextAt, emailSource, totalMs };
   }
 }
 

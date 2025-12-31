@@ -2,7 +2,7 @@ import { log } from "../../../functions/_shared/log.js";
 import { dequeueWaitlistEmail, enqueueWaitlistEmail, queueLength } from "../../../functions/_shared/queue.js";
 import { processWaitlistEmailJob } from "../../../functions/_shared/waitlistEmailJob.js";
 
-async function drain(env, ctx, limit) {
+async function drain(env, ctx, limit, source) {
   const rid = crypto.randomUUID();
   const t0 = Date.now();
 
@@ -13,23 +13,31 @@ async function drain(env, ctx, limit) {
     const job = await dequeueWaitlistEmail(env);
     if (!job) break;
 
+    // Attach the provenance (trigger vs cron) to the job
+    const jobWithSource = {
+      ...job,
+      emailSource: source, // "trigger" | "cron"
+    };
+
     try {
-      await processWaitlistEmailJob(job, env, ctx);
+      await processWaitlistEmailJob(jobWithSource, env, ctx);
       processed++;
     } catch (e) {
       failed++;
       log("consumer.job.fail", {
         rid,
+        source,
         error: String(e?.message || e).slice(0, 200),
       });
 
       // Re-enqueue so we don't lose jobs.
       // Your D1 "claim" makes this safe (idempotent).
       try {
-        await enqueueWaitlistEmail(env, job);
+        await enqueueWaitlistEmail(env, jobWithSource);
       } catch (reErr) {
         log("consumer.reenqueue.fail", {
           rid,
+          source,
           error: String(reErr?.message || reErr).slice(0, 200),
         });
       }
@@ -39,13 +47,14 @@ async function drain(env, ctx, limit) {
   const remaining = await queueLength(env).catch(() => null);
   log("consumer.drain.done", {
     rid,
+    source,
     processed,
     failed,
     remaining,
     totalMs: Date.now() - t0,
   });
 
-  return { processed, failed, remaining };
+  return { processed, failed, remaining, source };
 }
 
 export default {
@@ -63,7 +72,7 @@ export default {
       }
 
       const limit = Number(env.DRAIN_BATCH_SIZE || 10);
-      const result = await drain(env, ctx, limit);
+      const result = await drain(env, ctx, limit, "trigger");
 
       return new Response(JSON.stringify({ ok: true, ...result }), {
         status: 200,
@@ -76,7 +85,8 @@ export default {
 
   async scheduled(event, env, ctx) {
     const limit = Number(env.DRAIN_BATCH_SIZE || 10);
-    await drain(env, ctx, limit);
+    await drain(env, ctx, limit, "cron");
   },
 };
+
 
