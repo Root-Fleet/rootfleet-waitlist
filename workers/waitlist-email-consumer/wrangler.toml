@@ -1,17 +1,16 @@
 name = "waitlist-email-consumer"
 main = "src/index.js"
-compatibility_date = "2025-12-23"
+compatibility_date = "2025-12-31"
+
+[triggers]
+crons = ["*/1 * * * *"] # every minute backstop
+
+[vars]
+DRAIN_BATCH_SIZE = "10"
+RESEND_FROM = "Rootfleet <noreply@rootfleet.com>"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "rootfleet_waitlist"
 database_id = "0f85850c-0aaf-40f4-821a-061d3489968f"
-
-[vars]
-CRON_BATCH_SIZE = "10"
-
-[triggers]
-# Minimum interval is 1 minute (no seconds support)
-crons = ["*/1 * * * *"]
-
 

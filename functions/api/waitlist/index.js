@@ -1,5 +1,5 @@
 import { log } from "../../_shared/log.js";
-import { processWaitlistEmailJob } from "../../_shared/waitlistEmailJob.js";
+import { enqueueWaitlistEmail } from "../../_shared/queue.js";
 
 function json(status, body, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -73,17 +73,29 @@ export async function onRequestPost({ request, env, ctx }) {
     // ───────────────────
     if (!isValidEmail(email)) {
       log("waitlist.validation.fail", { rid, field: "email" });
-      return json(400, { ok: false, error: "Please enter a valid email.", rid }, { "x-request-id": rid });
+      return json(
+        400,
+        { ok: false, error: "Please enter a valid email.", rid },
+        { "x-request-id": rid }
+      );
     }
 
     if (!ALLOWED_ROLES.has(role)) {
       log("waitlist.validation.fail", { rid, field: "role" });
-      return json(400, { ok: false, error: "Please select a valid role.", rid }, { "x-request-id": rid });
+      return json(
+        400,
+        { ok: false, error: "Please select a valid role.", rid },
+        { "x-request-id": rid }
+      );
     }
 
     if (!ALLOWED_FLEET_SIZES.has(fleetSize)) {
       log("waitlist.validation.fail", { rid, field: "fleetSize" });
-      return json(400, { ok: false, error: "Please select a valid fleet size.", rid }, { "x-request-id": rid });
+      return json(
+        400,
+        { ok: false, error: "Please select a valid fleet size.", rid },
+        { "x-request-id": rid }
+      );
     }
 
     // ───────────────────
@@ -124,16 +136,30 @@ export async function onRequestPost({ request, env, ctx }) {
 
       if (isDup) {
         log("waitlist.duplicate", { rid, insertMs });
-        log("waitlist.result", { rid, status: "already_joined", insertMs, totalMs });
+        log("waitlist.result", {
+          rid,
+          status: "already_joined",
+          insertMs,
+          totalMs,
+        });
 
         return json(
           200,
-          { ok: true, status: "already_joined", message: "You're already on the list ✅", rid },
+          {
+            ok: true,
+            status: "already_joined",
+            message: "You're already on the list ✅",
+            rid,
+          },
           { "x-request-id": rid }
         );
       }
 
-      log("waitlist.db.insert.fail", { rid, insertMs, error: msg.slice(0, 300) });
+      log("waitlist.db.insert.fail", {
+        rid,
+        insertMs,
+        error: msg.slice(0, 300),
+      });
       log("waitlist.result", { rid, status: "db_error", insertMs, totalMs });
 
       return json(
@@ -144,39 +170,29 @@ export async function onRequestPost({ request, env, ctx }) {
     }
 
     // ───────────────────
-    // Best-effort background email (CANNOT break response)
+    // Queue: enqueue + trigger drain (near-instant)
     // ───────────────────
     try {
-      if (ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(
-          (async () => {
-            log("waitlist.email.best_effort.start", { rid });
-            try {
-              const result = await processWaitlistEmailJob(
-                { rid, email, role, fleetSize, companyName },
-                env,
-                ctx
-              );
-              log("waitlist.email.best_effort.end", {
-                rid,
-                resultStatus: result?.status,
-              });
-            } catch (e) {
-              log("waitlist.email.best_effort.fail", {
-                rid,
-                error: String(e?.message || e).slice(0, 300),
-              });
-            }
-          })()
-        );
+      await enqueueWaitlistEmail(env, { rid, email, role, fleetSize, companyName });
+      log("waitlist.queue.enqueued", { rid });
+
+      // fire-and-forget trigger to drain queue now (do not block response)
+      if (env.EMAIL_CONSUMER_TRIGGER_URL && env.TRIGGER_SECRET) {
+        fetch(env.EMAIL_CONSUMER_TRIGGER_URL, {
+          method: "POST",
+          headers: { "x-trigger-secret": env.TRIGGER_SECRET },
+        }).catch(() => {});
+        log("waitlist.queue.triggered", { rid });
       } else {
-        log("waitlist.email.best_effort.no_waitUntil", { rid, hasCtx: !!ctx });
+        log("waitlist.queue.trigger.skip", {
+          rid,
+          missingUrl: !env.EMAIL_CONSUMER_TRIGGER_URL,
+          missingSecret: !env.TRIGGER_SECRET,
+        });
       }
     } catch (e) {
-      log("waitlist.email.best_effort.waitUntil_throw", {
-        rid,
-        error: String(e?.message || e).slice(0, 300),
-      });
+      // If queue fails, user still joined; cron/backstop can handle pending later
+      log("waitlist.queue.fail", { rid, error: String(e?.message || e).slice(0, 300) });
     }
 
     const totalMs = Date.now() - t0;
