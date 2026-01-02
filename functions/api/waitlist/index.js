@@ -159,12 +159,12 @@ export async function onRequestPost({ request, env, ctx }) {
       const hasSecret = !!env.TRIGGER_SECRET;
       const hasWaitUntil = !!ctx?.waitUntil;
 
-      log("waitlist.queue.trigger.start", { rid, hasUrl, hasSecret, hasWaitUntil });
+      log("waitlist.queue.trigger.start", { rid, hasUrl, hasSecret, hasWaitUntil, timeoutMs });
 
       if (hasUrl && hasSecret) {
         const doTrigger = async () => {
           const ac = new AbortController();
-          const timeoutMs = 2500; // keep it short; never hang the request
+          const timeoutMs = 4000; // keep it short; never hang the request
           const timer = setTimeout(() => ac.abort(), timeoutMs);
 
           try {
