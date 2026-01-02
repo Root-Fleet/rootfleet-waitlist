@@ -20,21 +20,9 @@ function getClientIp(request) {
   );
 }
 
-const ALLOWED_ROLES = new Set([
-  "fleet_owner",
-  "operations",
-  "fleet_staff",
-  "engineer",
-  "other",
-]);
+const ALLOWED_ROLES = new Set(["fleet_owner", "operations", "fleet_staff", "engineer", "other"]);
 
-const ALLOWED_FLEET_SIZES = new Set([
-  "1-5",
-  "6-20",
-  "21-100",
-  "101-500",
-  "500+",
-]);
+const ALLOWED_FLEET_SIZES = new Set(["1-5", "6-20", "21-100", "101-500", "500+"]);
 
 export async function onRequestPost({ request, env, ctx }) {
   const rid = crypto.randomUUID();
@@ -73,29 +61,17 @@ export async function onRequestPost({ request, env, ctx }) {
     // ───────────────────
     if (!isValidEmail(email)) {
       log("waitlist.validation.fail", { rid, field: "email" });
-      return json(
-        400,
-        { ok: false, error: "Please enter a valid email.", rid },
-        { "x-request-id": rid }
-      );
+      return json(400, { ok: false, error: "Please enter a valid email.", rid }, { "x-request-id": rid });
     }
 
     if (!ALLOWED_ROLES.has(role)) {
       log("waitlist.validation.fail", { rid, field: "role" });
-      return json(
-        400,
-        { ok: false, error: "Please select a valid role.", rid },
-        { "x-request-id": rid }
-      );
+      return json(400, { ok: false, error: "Please select a valid role.", rid }, { "x-request-id": rid });
     }
 
     if (!ALLOWED_FLEET_SIZES.has(fleetSize)) {
       log("waitlist.validation.fail", { rid, field: "fleetSize" });
-      return json(
-        400,
-        { ok: false, error: "Please select a valid fleet size.", rid },
-        { "x-request-id": rid }
-      );
+      return json(400, { ok: false, error: "Please select a valid fleet size.", rid }, { "x-request-id": rid });
     }
 
     // ───────────────────
@@ -128,45 +104,25 @@ export async function onRequestPost({ request, env, ctx }) {
     } catch (e) {
       insertMs = Date.now() - tIns0;
       const msg = String(e?.message || e);
-      const isDup =
-        msg.includes("UNIQUE constraint failed") ||
-        msg.toLowerCase().includes("unique");
+      const isDup = msg.includes("UNIQUE constraint failed") || msg.toLowerCase().includes("unique");
 
       const totalMs = Date.now() - t0;
 
       if (isDup) {
         log("waitlist.duplicate", { rid, insertMs });
-        log("waitlist.result", {
-          rid,
-          status: "already_joined",
-          insertMs,
-          totalMs,
-        });
+        log("waitlist.result", { rid, status: "already_joined", insertMs, totalMs });
 
         return json(
           200,
-          {
-            ok: true,
-            status: "already_joined",
-            message: "You're already on the list ✅",
-            rid,
-          },
+          { ok: true, status: "already_joined", message: "You're already on the list ✅", rid },
           { "x-request-id": rid }
         );
       }
 
-      log("waitlist.db.insert.fail", {
-        rid,
-        insertMs,
-        error: msg.slice(0, 300),
-      });
+      log("waitlist.db.insert.fail", { rid, insertMs, error: msg.slice(0, 300) });
       log("waitlist.result", { rid, status: "db_error", insertMs, totalMs });
 
-      return json(
-        500,
-        { ok: false, error: "Database error. Please try again.", rid },
-        { "x-request-id": rid }
-      );
+      return json(500, { ok: false, error: "Database error. Please try again.", rid }, { "x-request-id": rid });
     }
 
     // ───────────────────
@@ -179,16 +135,43 @@ export async function onRequestPost({ request, env, ctx }) {
         role,
         fleetSize,
         companyName,
-        emailSource: "trigger", });
+        emailSource: "trigger",
+      });
 
-      log("waitlist.queue.enqueued", { rid });
+      // Optional but helpful: log the source we stamped onto the job
+      log("waitlist.queue.enqueued", { rid, emailSource: "trigger" });
 
-      // fire-and-forget trigger to drain queue now (do not block response)
+      // fire-and-forget trigger to drain queue now (do not block response),
+      // but DO log the response so we can debug 401/404/500.
+      log("waitlist.queue.trigger.start", {
+        rid,
+        hasUrl: !!env.EMAIL_CONSUMER_TRIGGER_URL,
+        hasSecret: !!env.TRIGGER_SECRET,
+      });
+
       if (env.EMAIL_CONSUMER_TRIGGER_URL && env.TRIGGER_SECRET) {
-        fetch(env.EMAIL_CONSUMER_TRIGGER_URL, {
-          method: "POST",
-          headers: { "x-trigger-secret": env.TRIGGER_SECRET },
-        }).catch(() => {});
+        ctx.waitUntil(
+          fetch(env.EMAIL_CONSUMER_TRIGGER_URL, {
+            method: "POST",
+            headers: { "x-trigger-secret": env.TRIGGER_SECRET },
+          })
+            .then(async (res) => {
+              const bodyText = await res.text().catch(() => "");
+              log("waitlist.queue.trigger.response", {
+                rid,
+                status: res.status,
+                ok: res.ok,
+                body: bodyText.slice(0, 200),
+              });
+            })
+            .catch((err) => {
+              log("waitlist.queue.trigger.error", {
+                rid,
+                error: String(err?.message || err).slice(0, 200),
+              });
+            })
+        );
+
         log("waitlist.queue.triggered", { rid });
       } else {
         log("waitlist.queue.trigger.skip", {
@@ -207,27 +190,14 @@ export async function onRequestPost({ request, env, ctx }) {
 
     return json(
       200,
-      {
-        ok: true,
-        status: "joined",
-        message: "You're on the list ✅ (check your inbox soon)",
-        rid,
-      },
+      { ok: true, status: "joined", message: "You're on the list ✅ (check your inbox soon)", rid },
       { "x-request-id": rid }
     );
   } catch (err) {
     const totalMs = Date.now() - t0;
-    log("waitlist.unhandled.fail", {
-      rid,
-      error: String(err?.message || err).slice(0, 300),
-      totalMs,
-    });
+    log("waitlist.unhandled.fail", { rid, error: String(err?.message || err).slice(0, 300), totalMs });
 
-    return json(
-      500,
-      { ok: false, error: "Server error", rid },
-      { "x-request-id": rid }
-    );
+    return json(500, { ok: false, error: "Server error", rid }, { "x-request-id": rid });
   }
 }
 
