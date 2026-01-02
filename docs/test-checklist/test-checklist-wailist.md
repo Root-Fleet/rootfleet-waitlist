@@ -211,3 +211,5 @@ WHERE email='you+idempo@gmail.com';
 - Trigger and cron paths both safe
 
 - Observability sufficient to debug in minutes, not hours
+
+## This doc still requires amendments
