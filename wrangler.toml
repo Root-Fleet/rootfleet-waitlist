@@ -1,3 +1,4 @@
+# Production (main branch / production environment)
 name = "rootfleet-waitlist"
 compatibility_date = "2025-12-23"
 pages_build_output_dir = "public"
@@ -6,3 +7,10 @@ pages_build_output_dir = "public"
 binding = "DB"
 database_name = "rootfleet_waitlist"
 database_id = "0f85850c-0aaf-40f4-821a-061d3489968f"
+
+# Preview environment (all non-production branches on Pages)
+[env.preview]
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "rootfleet_waitlist_preview"
+database_id = "27cb653b-d1b8-4b3d-abbe-947625153283"
