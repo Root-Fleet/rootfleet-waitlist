@@ -21,7 +21,6 @@ function getClientIp(request) {
 }
 
 const ALLOWED_ROLES = new Set(["fleet_owner", "operations", "fleet_staff", "engineer", "other"]);
-
 const ALLOWED_FLEET_SIZES = new Set(["1-5", "6-20", "21-100", "101-500", "500+"]);
 
 export async function onRequestPost({ request, env, ctx }) {
@@ -61,17 +60,29 @@ export async function onRequestPost({ request, env, ctx }) {
     // ───────────────────
     if (!isValidEmail(email)) {
       log("waitlist.validation.fail", { rid, field: "email" });
-      return json(400, { ok: false, error: "Please enter a valid email.", rid }, { "x-request-id": rid });
+      return json(
+        400,
+        { ok: false, error: "Please enter a valid email.", rid },
+        { "x-request-id": rid }
+      );
     }
 
     if (!ALLOWED_ROLES.has(role)) {
       log("waitlist.validation.fail", { rid, field: "role" });
-      return json(400, { ok: false, error: "Please select a valid role.", rid }, { "x-request-id": rid });
+      return json(
+        400,
+        { ok: false, error: "Please select a valid role.", rid },
+        { "x-request-id": rid }
+      );
     }
 
     if (!ALLOWED_FLEET_SIZES.has(fleetSize)) {
       log("waitlist.validation.fail", { rid, field: "fleetSize" });
-      return json(400, { ok: false, error: "Please select a valid fleet size.", rid }, { "x-request-id": rid });
+      return json(
+        400,
+        { ok: false, error: "Please select a valid fleet size.", rid },
+        { "x-request-id": rid }
+      );
     }
 
     // ───────────────────
@@ -122,7 +133,11 @@ export async function onRequestPost({ request, env, ctx }) {
       log("waitlist.db.insert.fail", { rid, insertMs, error: msg.slice(0, 300) });
       log("waitlist.result", { rid, status: "db_error", insertMs, totalMs });
 
-      return json(500, { ok: false, error: "Database error. Please try again.", rid }, { "x-request-id": rid });
+      return json(
+        500,
+        { ok: false, error: "Database error. Please try again.", rid },
+        { "x-request-id": rid }
+      );
     }
 
     // ───────────────────
@@ -141,43 +156,45 @@ export async function onRequestPost({ request, env, ctx }) {
       // Optional but helpful: log the source we stamped onto the job
       log("waitlist.queue.enqueued", { rid, emailSource: "trigger" });
 
-      // fire-and-forget trigger to drain queue now (do not block response),
-      // but DO log the response so we can debug 401/404/500.
-      log("waitlist.queue.trigger.start", {
-        rid,
-        hasUrl: !!env.EMAIL_CONSUMER_TRIGGER_URL,
-        hasSecret: !!env.TRIGGER_SECRET,
-      });
+      // Fire trigger drain now (do not block response), but DO log response
+      const hasUrl = !!env.EMAIL_CONSUMER_TRIGGER_URL;
+      const hasSecret = !!env.TRIGGER_SECRET;
+      const hasWaitUntil = !!ctx?.waitUntil;
 
-      if (env.EMAIL_CONSUMER_TRIGGER_URL && env.TRIGGER_SECRET) {
-        ctx.waitUntil(
-          fetch(env.EMAIL_CONSUMER_TRIGGER_URL, {
-            method: "POST",
-            headers: { "x-trigger-secret": env.TRIGGER_SECRET },
+      log("waitlist.queue.trigger.start", { rid, hasUrl, hasSecret, hasWaitUntil });
+
+      if (hasUrl && hasSecret) {
+        const triggerPromise = fetch(env.EMAIL_CONSUMER_TRIGGER_URL, {
+          method: "POST",
+          headers: { "x-trigger-secret": env.TRIGGER_SECRET },
+        })
+          .then(async (res) => {
+            const bodyText = await res.text().catch(() => "");
+            log("waitlist.queue.trigger.response", {
+              rid,
+              status: res.status,
+              ok: res.ok,
+              body: bodyText.slice(0, 200),
+            });
           })
-            .then(async (res) => {
-              const bodyText = await res.text().catch(() => "");
-              log("waitlist.queue.trigger.response", {
-                rid,
-                status: res.status,
-                ok: res.ok,
-                body: bodyText.slice(0, 200),
-              });
-            })
-            .catch((err) => {
-              log("waitlist.queue.trigger.error", {
-                rid,
-                error: String(err?.message || err).slice(0, 200),
-              });
-            })
-        );
+          .catch((err) => {
+            log("waitlist.queue.trigger.error", {
+              rid,
+              error: String(err?.message || err).slice(0, 200),
+            });
+          });
+
+        // Use waitUntil when available; otherwise fire-and-forget safely
+        if (ctx?.waitUntil) {
+          ctx.waitUntil(triggerPromise);
+        }
 
         log("waitlist.queue.triggered", { rid });
       } else {
         log("waitlist.queue.trigger.skip", {
           rid,
-          missingUrl: !env.EMAIL_CONSUMER_TRIGGER_URL,
-          missingSecret: !env.TRIGGER_SECRET,
+          missingUrl: !hasUrl,
+          missingSecret: !hasSecret,
         });
       }
     } catch (e) {
@@ -195,7 +212,11 @@ export async function onRequestPost({ request, env, ctx }) {
     );
   } catch (err) {
     const totalMs = Date.now() - t0;
-    log("waitlist.unhandled.fail", { rid, error: String(err?.message || err).slice(0, 300), totalMs });
+    log("waitlist.unhandled.fail", {
+      rid,
+      error: String(err?.message || err).slice(0, 300),
+      totalMs,
+    });
 
     return json(500, { ok: false, error: "Server error", rid }, { "x-request-id": rid });
   }
