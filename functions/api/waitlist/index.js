@@ -153,10 +153,8 @@ export async function onRequestPost({ request, env, ctx }) {
         emailSource: "trigger",
       });
 
-      // Optional but helpful: log the source we stamped onto the job
       log("waitlist.queue.enqueued", { rid, emailSource: "trigger" });
 
-      // Fire trigger drain now (do not block response), but DO log response
       const hasUrl = !!env.EMAIL_CONSUMER_TRIGGER_URL;
       const hasSecret = !!env.TRIGGER_SECRET;
       const hasWaitUntil = !!ctx?.waitUntil;
@@ -164,11 +162,18 @@ export async function onRequestPost({ request, env, ctx }) {
       log("waitlist.queue.trigger.start", { rid, hasUrl, hasSecret, hasWaitUntil });
 
       if (hasUrl && hasSecret) {
-        const triggerPromise = fetch(env.EMAIL_CONSUMER_TRIGGER_URL, {
-          method: "POST",
-          headers: { "x-trigger-secret": env.TRIGGER_SECRET },
-        })
-          .then(async (res) => {
+        const doTrigger = async () => {
+          const ac = new AbortController();
+          const timeoutMs = 2500; // keep it short; never hang the request
+          const timer = setTimeout(() => ac.abort(), timeoutMs);
+
+          try {
+            const res = await fetch(env.EMAIL_CONSUMER_TRIGGER_URL, {
+              method: "POST",
+              headers: { "x-trigger-secret": env.TRIGGER_SECRET },
+              signal: ac.signal,
+            });
+
             const bodyText = await res.text().catch(() => "");
             log("waitlist.queue.trigger.response", {
               rid,
@@ -176,20 +181,24 @@ export async function onRequestPost({ request, env, ctx }) {
               ok: res.ok,
               body: bodyText.slice(0, 200),
             });
-          })
-          .catch((err) => {
+          } catch (err) {
             log("waitlist.queue.trigger.error", {
               rid,
               error: String(err?.message || err).slice(0, 200),
             });
-          });
+          } finally {
+            clearTimeout(timer);
+          }
+        };
 
-        // Use waitUntil when available; otherwise fire-and-forget safely
         if (ctx?.waitUntil) {
-          ctx.waitUntil(triggerPromise);
+          ctx.waitUntil(doTrigger());
+          log("waitlist.queue.triggered", { rid, mode: "waitUntil" });
+        } else {
+          // No waitUntil in this runtime → MUST await, otherwise it may be killed early
+          await doTrigger();
+          log("waitlist.queue.triggered", { rid, mode: "await" });
         }
-
-        log("waitlist.queue.triggered", { rid });
       } else {
         log("waitlist.queue.trigger.skip", {
           rid,
@@ -198,7 +207,6 @@ export async function onRequestPost({ request, env, ctx }) {
         });
       }
     } catch (e) {
-      // If queue fails, user still joined; cron/backstop can handle pending later
       log("waitlist.queue.fail", { rid, error: String(e?.message || e).slice(0, 300) });
     }
 
