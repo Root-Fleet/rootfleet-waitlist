@@ -60,29 +60,17 @@ export async function onRequestPost({ request, env, ctx }) {
     // ───────────────────
     if (!isValidEmail(email)) {
       log("waitlist.validation.fail", { rid, field: "email" });
-      return json(
-        400,
-        { ok: false, error: "Please enter a valid email.", rid },
-        { "x-request-id": rid }
-      );
+      return json(400, { ok: false, error: "Please enter a valid email.", rid }, { "x-request-id": rid });
     }
 
     if (!ALLOWED_ROLES.has(role)) {
       log("waitlist.validation.fail", { rid, field: "role" });
-      return json(
-        400,
-        { ok: false, error: "Please select a valid role.", rid },
-        { "x-request-id": rid }
-      );
+      return json(400, { ok: false, error: "Please select a valid role.", rid }, { "x-request-id": rid });
     }
 
     if (!ALLOWED_FLEET_SIZES.has(fleetSize)) {
       log("waitlist.validation.fail", { rid, field: "fleetSize" });
-      return json(
-        400,
-        { ok: false, error: "Please select a valid fleet size.", rid },
-        { "x-request-id": rid }
-      );
+      return json(400, { ok: false, error: "Please select a valid fleet size.", rid }, { "x-request-id": rid });
     }
 
     // ───────────────────
@@ -133,11 +121,7 @@ export async function onRequestPost({ request, env, ctx }) {
       log("waitlist.db.insert.fail", { rid, insertMs, error: msg.slice(0, 300) });
       log("waitlist.result", { rid, status: "db_error", insertMs, totalMs });
 
-      return json(
-        500,
-        { ok: false, error: "Database error. Please try again.", rid },
-        { "x-request-id": rid }
-      );
+      return json(500, { ok: false, error: "Database error. Please try again.", rid }, { "x-request-id": rid });
     }
 
     // ───────────────────
@@ -158,13 +142,13 @@ export async function onRequestPost({ request, env, ctx }) {
       const hasUrl = !!env.EMAIL_CONSUMER_TRIGGER_URL;
       const hasSecret = !!env.TRIGGER_SECRET;
       const hasWaitUntil = !!ctx?.waitUntil;
+      const timeoutMs = 4000; // <— DEFINE IT HERE (so logs can use it)
 
       log("waitlist.queue.trigger.start", { rid, hasUrl, hasSecret, hasWaitUntil, timeoutMs });
 
       if (hasUrl && hasSecret) {
         const doTrigger = async () => {
           const ac = new AbortController();
-          const timeoutMs = 4000; // keep it short; never hang the request
           const timer = setTimeout(() => ac.abort(), timeoutMs);
 
           try {
@@ -195,7 +179,6 @@ export async function onRequestPost({ request, env, ctx }) {
           ctx.waitUntil(doTrigger());
           log("waitlist.queue.triggered", { rid, mode: "waitUntil" });
         } else {
-          // No waitUntil in this runtime → MUST await, otherwise it may be killed early
           await doTrigger();
           log("waitlist.queue.triggered", { rid, mode: "await" });
         }
