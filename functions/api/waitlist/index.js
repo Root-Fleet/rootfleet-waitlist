@@ -43,7 +43,6 @@ export async function onRequestPost({ request, env, ctx }) {
     const email = String(body.email || "").trim().toLowerCase();
     const role = String(body.role || "").trim();
     const fleetSize = String(body.fleetSize || "").trim();
-
     const companyNameRaw = body.companyName == null ? "" : String(body.companyName);
     const companyName = companyNameRaw.trim() ? companyNameRaw.trim() : null;
 
@@ -125,9 +124,15 @@ export async function onRequestPost({ request, env, ctx }) {
     }
 
     // ───────────────────
-    // Queue: enqueue + trigger drain (near-instant)
+    // Queue / Email Guard
     // ───────────────────
-    try {
+    const queueEnabled = env.QUEUE_MODE === "enabled";
+
+    if (!queueEnabled) {
+      log("waitlist.queue.skipped", { rid, reason: "QUEUE_MODE disabled (preview environment)" });
+    } else {
+      const emailEnabled = env.EMAIL_MODE === "enabled";
+
       await enqueueWaitlistEmail(env, {
         rid,
         email,
@@ -135,6 +140,7 @@ export async function onRequestPost({ request, env, ctx }) {
         fleetSize,
         companyName,
         emailSource: "trigger",
+        emailEnabled, // optional: pass flag to function if you want internal guard
       });
 
       log("waitlist.queue.enqueued", { rid, emailSource: "trigger" });
@@ -142,7 +148,7 @@ export async function onRequestPost({ request, env, ctx }) {
       const hasUrl = !!env.EMAIL_CONSUMER_TRIGGER_URL;
       const hasSecret = !!env.TRIGGER_SECRET;
       const hasWaitUntil = !!ctx?.waitUntil;
-      const timeoutMs = 4000; // <— DEFINE IT HERE (so logs can use it)
+      const timeoutMs = 4000;
 
       log("waitlist.queue.trigger.start", { rid, hasUrl, hasSecret, hasWaitUntil, timeoutMs });
 
@@ -189,8 +195,6 @@ export async function onRequestPost({ request, env, ctx }) {
           missingSecret: !hasSecret,
         });
       }
-    } catch (e) {
-      log("waitlist.queue.fail", { rid, error: String(e?.message || e).slice(0, 300) });
     }
 
     const totalMs = Date.now() - t0;
