@@ -1,4 +1,4 @@
-import { check, sleep } from 'k6';
+import { sleep } from 'k6';
 import http from 'k6/http';
 import { Counter, Trend } from 'k6/metrics';
 
@@ -52,16 +52,13 @@ export default function () {
     companyName: 'TestCorp',
   });
 
-  const params = {
-    headers: { 'Content-Type': 'application/json' },
-  };
-
+  const params = { headers: { 'Content-Type': 'application/json' } };
   const res = http.post(`${BASE_URL}/api/waitlist`, payload, params);
 
   // Measure latency
   latencyTrend.add(res.timings.duration);
 
-  // Parse response safely
+  // Parse JSON safely
   let json;
   try {
     json = res.json();
@@ -71,13 +68,8 @@ export default function () {
     return;
   }
 
-  // Check for successful signup
-  const success = check(res, {
-    'status is joined': () =>
-      res.status === 200 && (json.status === 'joined' || json.status === 'already_joined'),
-  });
-
-  if (success) {
+  // Increment counters robustly
+  if (res.status === 200 && (json.status === 'joined' || json.status === 'already_joined')) {
     successCounter.add(1);
   } else {
     failCounter.add(1);
@@ -108,6 +100,5 @@ export function handleSummary(data) {
   console.log(`Avg latency (ms): ${avgLatency.toFixed(2)}`);
   console.log('======================================');
 
-  return {}; // no HTML/json output, just console
+  return {};
 }
-
