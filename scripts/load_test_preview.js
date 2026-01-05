@@ -10,24 +10,28 @@ export let successCounter = new Counter('successful_signups');
 export let failCounter = new Counter('failed_signups');
 
 // ────────────────
-// Load test options
+// Load test options with ramp-up stages
 // ────────────────
 export let options = {
-  vus: 10,           // 10 virtual users
-  duration: '30s',   // run for 30 seconds
+  stages: [
+    { duration: '10s', target: 10 },   // ramp up to 10 VUs
+    { duration: '20s', target: 50 },   // ramp up to 50 VUs
+    { duration: '30s', target: 100 },  // ramp up to 100 VUs
+    { duration: '20s', target: 0 },    // ramp down
+  ],
   thresholds: {
     'http_req_duration': ['p(95)<600'], // 95% requests under 600ms
-    'failed_signups': ['rate<0.2'],     // less than 20% failed, safer for preview
+    'failed_signups': ['rate<0.2'],     // less than 20% failed
   },
 };
 
 // ────────────────
 // Preview URL
 // ────────────────
-const BASE_URL = 'https://staging.rootfleet-waitlist.pages.dev'; // no trailing slash
+const BASE_URL = 'https://staging.rootfleet-waitlist.pages.dev';
 
 // ────────────────
-// Utility function
+// Utility function to generate unique emails
 // ────────────────
 function generateEmail() {
   const ts = Date.now();
@@ -57,10 +61,20 @@ export default function () {
   // Measure latency
   latencyTrend.add(res.timings.duration);
 
-  // Check status
+  // Parse response safely
+  let json;
+  try {
+    json = res.json();
+  } catch (e) {
+    failCounter.add(1);
+    console.log(`Failed to parse JSON for ${email}: ${res.status}`);
+    return;
+  }
+
+  // Check for successful signup
   const success = check(res, {
-    'status is 200 or already_joined': (r) =>
-      r.status === 200 && (r.json().status === 'joined' || r.json().status === 'already_joined'),
+    'status is joined': () =>
+      res.status === 200 && (json.status === 'joined' || json.status === 'already_joined'),
   });
 
   if (success) {
@@ -70,8 +84,8 @@ export default function () {
     console.log(`Failed request for ${email}: ${res.status} - ${res.body.slice(0, 100)}`);
   }
 
-  // Small sleep to simulate realistic signup pace
-  sleep(Math.random() * 0.5); // 0–500ms
+  // Realistic user think time: 0.5–2.5s
+  sleep(0.5 + Math.random() * 2);
 }
 
 // ────────────────
