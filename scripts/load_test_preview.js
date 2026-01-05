@@ -24,7 +24,7 @@ export let options = {
 // ────────────────
 // Preview URL
 // ────────────────
-const BASE_URL = 'https://37a36952.rootfleet-waitlist.pages.dev';
+const BASE_URL = 'https://af3009b0.rootfleet-waitlist.pages.dev/';
 
 // ────────────────
 // Utility function
