@@ -1,9 +1,19 @@
-export function log(event, fields = {}) {
+/**
+ * Pure/testable core.
+ */
+export function _logCore(event, fields = {}, { nowIso, consoleImpl } = {}) {
   const payload = {
-    ts: new Date().toISOString(),
+    ts: (nowIso || (() => new Date().toISOString()))(),
     event,
     ...fields,
   };
-  console.log(JSON.stringify(payload));
+
+  (consoleImpl || console).log(JSON.stringify(payload));
 }
 
+/**
+ * Production wrapper (same API as before).
+ */
+export function log(event, fields = {}) {
+  return _logCore(event, fields);
+}
