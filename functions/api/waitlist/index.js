@@ -23,9 +23,18 @@ function getClientIp(request) {
 const ALLOWED_ROLES = new Set(["fleet_owner", "operations", "fleet_staff", "engineer", "other"]);
 const ALLOWED_FLEET_SIZES = new Set(["1-5", "6-20", "21-100", "101-500", "500+"]);
 
-export async function onRequestPost({ request, env, ctx }) {
-  const rid = crypto.randomUUID();
-  const t0 = Date.now();
+export async function _onRequestPostCore(
+  { request, env, ctx },
+  {
+    uuid = () => crypto.randomUUID(),
+    now = () => Date.now(),
+    logImpl = log,
+    enqueueImpl = enqueueWaitlistEmail,
+    fetchImpl = fetch,
+  } = {}
+) {
+  const rid = uuid();
+  const t0 = now();
 
   let insertMs = null;
 
@@ -35,7 +44,7 @@ export async function onRequestPost({ request, env, ctx }) {
   const ip = getClientIp(request);
   const userAgent = request.headers.get("User-Agent") || null;
 
-  log("waitlist.request", { rid, method: request.method, path, ip, ua: userAgent });
+  logImpl("waitlist.request", { rid, method: request.method, path, ip, ua: userAgent });
 
   try {
     const body = await request.json().catch(() => ({}));
@@ -46,7 +55,7 @@ export async function onRequestPost({ request, env, ctx }) {
     const companyNameRaw = body.companyName == null ? "" : String(body.companyName);
     const companyName = companyNameRaw.trim() ? companyNameRaw.trim() : null;
 
-    log("waitlist.parsed", {
+    logImpl("waitlist.parsed", {
       rid,
       role,
       fleetSize,
@@ -54,29 +63,25 @@ export async function onRequestPost({ request, env, ctx }) {
       emailDomain: email.includes("@") ? email.split("@")[1] : null,
     });
 
-    // ───────────────────
     // Validation
-    // ───────────────────
     if (!isValidEmail(email)) {
-      log("waitlist.validation.fail", { rid, field: "email" });
+      logImpl("waitlist.validation.fail", { rid, field: "email" });
       return json(400, { ok: false, error: "Please enter a valid email.", rid }, { "x-request-id": rid });
     }
 
     if (!ALLOWED_ROLES.has(role)) {
-      log("waitlist.validation.fail", { rid, field: "role" });
+      logImpl("waitlist.validation.fail", { rid, field: "role" });
       return json(400, { ok: false, error: "Please select a valid role.", rid }, { "x-request-id": rid });
     }
 
     if (!ALLOWED_FLEET_SIZES.has(fleetSize)) {
-      log("waitlist.validation.fail", { rid, field: "fleetSize" });
+      logImpl("waitlist.validation.fail", { rid, field: "fleetSize" });
       return json(400, { ok: false, error: "Please select a valid fleet size.", rid }, { "x-request-id": rid });
     }
 
-    // ───────────────────
-    // Insert row (email pending)
-    // ───────────────────
-    log("waitlist.db.insert.start", { rid });
-    const tIns0 = Date.now();
+    // Insert
+    logImpl("waitlist.db.insert.start", { rid });
+    const tIns0 = now();
 
     try {
       await env.DB.prepare(
@@ -97,18 +102,18 @@ export async function onRequestPost({ request, env, ctx }) {
         .bind(email, role, fleetSize, companyName, ip, userAgent)
         .run();
 
-      insertMs = Date.now() - tIns0;
-      log("waitlist.db.insert.ok", { rid, insertMs });
+      insertMs = now() - tIns0;
+      logImpl("waitlist.db.insert.ok", { rid, insertMs });
     } catch (e) {
-      insertMs = Date.now() - tIns0;
+      insertMs = now() - tIns0;
       const msg = String(e?.message || e);
       const isDup = msg.includes("UNIQUE constraint failed") || msg.toLowerCase().includes("unique");
 
-      const totalMs = Date.now() - t0;
+      const totalMs = now() - t0;
 
       if (isDup) {
-        log("waitlist.duplicate", { rid, insertMs });
-        log("waitlist.result", { rid, status: "already_joined", insertMs, totalMs });
+        logImpl("waitlist.duplicate", { rid, insertMs });
+        logImpl("waitlist.result", { rid, status: "already_joined", insertMs, totalMs });
 
         return json(
           200,
@@ -117,40 +122,38 @@ export async function onRequestPost({ request, env, ctx }) {
         );
       }
 
-      log("waitlist.db.insert.fail", { rid, insertMs, error: msg.slice(0, 300) });
-      log("waitlist.result", { rid, status: "db_error", insertMs, totalMs });
+      logImpl("waitlist.db.insert.fail", { rid, insertMs, error: msg.slice(0, 300) });
+      logImpl("waitlist.result", { rid, status: "db_error", insertMs, totalMs });
 
       return json(500, { ok: false, error: "Database error. Please try again.", rid }, { "x-request-id": rid });
     }
 
-    // ───────────────────
     // Queue / Email Guard
-    // ───────────────────
     const queueEnabled = env.QUEUE_MODE === "enabled";
 
     if (!queueEnabled) {
-      log("waitlist.queue.skipped", { rid, reason: "QUEUE_MODE disabled (preview environment)" });
+      logImpl("waitlist.queue.skipped", { rid, reason: "QUEUE_MODE disabled (preview environment)" });
     } else {
       const emailEnabled = env.EMAIL_MODE === "enabled";
 
-      await enqueueWaitlistEmail(env, {
+      await enqueueImpl(env, {
         rid,
         email,
         role,
         fleetSize,
         companyName,
         emailSource: "trigger",
-        emailEnabled, // optional: pass flag to function if you want internal guard
+        emailEnabled,
       });
 
-      log("waitlist.queue.enqueued", { rid, emailSource: "trigger" });
+      logImpl("waitlist.queue.enqueued", { rid, emailSource: "trigger" });
 
       const hasUrl = !!env.EMAIL_CONSUMER_TRIGGER_URL;
       const hasSecret = !!env.TRIGGER_SECRET;
       const hasWaitUntil = !!ctx?.waitUntil;
       const timeoutMs = 4000;
 
-      log("waitlist.queue.trigger.start", { rid, hasUrl, hasSecret, hasWaitUntil, timeoutMs });
+      logImpl("waitlist.queue.trigger.start", { rid, hasUrl, hasSecret, hasWaitUntil, timeoutMs });
 
       if (hasUrl && hasSecret) {
         const doTrigger = async () => {
@@ -158,21 +161,21 @@ export async function onRequestPost({ request, env, ctx }) {
           const timer = setTimeout(() => ac.abort(), timeoutMs);
 
           try {
-            const res = await fetch(env.EMAIL_CONSUMER_TRIGGER_URL, {
+            const res = await fetchImpl(env.EMAIL_CONSUMER_TRIGGER_URL, {
               method: "POST",
               headers: { "x-trigger-secret": env.TRIGGER_SECRET },
               signal: ac.signal,
             });
 
             const bodyText = await res.text().catch(() => "");
-            log("waitlist.queue.trigger.response", {
+            logImpl("waitlist.queue.trigger.response", {
               rid,
               status: res.status,
               ok: res.ok,
               body: bodyText.slice(0, 200),
             });
           } catch (err) {
-            log("waitlist.queue.trigger.error", {
+            logImpl("waitlist.queue.trigger.error", {
               rid,
               error: String(err?.message || err).slice(0, 200),
             });
@@ -183,13 +186,13 @@ export async function onRequestPost({ request, env, ctx }) {
 
         if (ctx?.waitUntil) {
           ctx.waitUntil(doTrigger());
-          log("waitlist.queue.triggered", { rid, mode: "waitUntil" });
+          logImpl("waitlist.queue.triggered", { rid, mode: "waitUntil" });
         } else {
           await doTrigger();
-          log("waitlist.queue.triggered", { rid, mode: "await" });
+          logImpl("waitlist.queue.triggered", { rid, mode: "await" });
         }
       } else {
-        log("waitlist.queue.trigger.skip", {
+        logImpl("waitlist.queue.trigger.skip", {
           rid,
           missingUrl: !hasUrl,
           missingSecret: !hasSecret,
@@ -197,8 +200,8 @@ export async function onRequestPost({ request, env, ctx }) {
       }
     }
 
-    const totalMs = Date.now() - t0;
-    log("waitlist.result", { rid, status: "joined", insertMs, totalMs });
+    const totalMs = now() - t0;
+    logImpl("waitlist.result", { rid, status: "joined", insertMs, totalMs });
 
     return json(
       200,
@@ -206,8 +209,8 @@ export async function onRequestPost({ request, env, ctx }) {
       { "x-request-id": rid }
     );
   } catch (err) {
-    const totalMs = Date.now() - t0;
-    log("waitlist.unhandled.fail", {
+    const totalMs = now() - t0;
+    logImpl("waitlist.unhandled.fail", {
       rid,
       error: String(err?.message || err).slice(0, 300),
       totalMs,
@@ -215,5 +218,10 @@ export async function onRequestPost({ request, env, ctx }) {
 
     return json(500, { ok: false, error: "Server error", rid }, { "x-request-id": rid });
   }
+}
+
+// Production export remains unchanged
+export async function onRequestPost(ctx) {
+  return _onRequestPostCore(ctx);
 }
 
