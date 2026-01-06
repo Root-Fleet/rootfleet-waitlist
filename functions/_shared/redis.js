@@ -1,21 +1,20 @@
 import { log } from "./log.js";
 
 /**
- * Minimal Upstash Redis REST client.
- * Upstash REST:
- *  - Auth: Authorization: Bearer <TOKEN>
- *  - Response: { result: ... } or { error: ..., status: ... }
+ * Pure/testable core.
  */
-export async function redisCmd(env, command, ...args) {
-  if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
+export async function _redisCmdCore(env, command, args, { fetchImpl, logImpl } = {}) {
+  if (!env?.UPSTASH_REDIS_REST_URL || !env?.UPSTASH_REDIS_REST_TOKEN) {
     throw new Error("missing_upstash_env");
   }
 
-  const base = env.UPSTASH_REDIS_REST_URL.replace(/\/+$/, "");
-  const path = [command, ...args].map((x) => encodeURIComponent(String(x))).join("/");
+  const base = String(env.UPSTASH_REDIS_REST_URL).replace(/\/+$/, "");
+  const path = [command, ...args]
+    .map((x) => encodeURIComponent(String(x)))
+    .join("/");
   const url = `${base}/${path}`;
 
-  const res = await fetch(url, {
+  const res = await (fetchImpl || fetch)(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
@@ -26,9 +25,17 @@ export async function redisCmd(env, command, ...args) {
 
   if (!res.ok || data?.error) {
     const msg = data?.error || `upstash_error_${res.status}`;
-    log("redis.error", { command, msg: String(msg).slice(0, 200) });
+    (logImpl || log)("redis.error", { command, msg: String(msg).slice(0, 200) });
     throw new Error(msg);
   }
 
   return data.result;
 }
+
+/**
+ * Production wrapper (same API/signature as before).
+ */
+export async function redisCmd(env, command, ...args) {
+  return _redisCmdCore(env, command, args, { fetchImpl: fetch, logImpl: log });
+}
+
