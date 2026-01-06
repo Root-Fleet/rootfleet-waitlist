@@ -1,22 +1,20 @@
 import { log } from "./log.js";
 
-export async function sendResendEmail({
-  rid,
-  apiKey,
-  from,
-  to,
-  subject,
-  html,
-  text,
-}) {
-  const t0 = Date.now();
+/**
+ * Pure/testable core. Unit tests call this directly with injected deps.
+ */
+export async function _sendResendEmailCore(
+  { rid, apiKey, from, to, subject, html, text },
+  { fetchImpl, logImpl, now }
+) {
+  const t0 = now();
 
   const toDomain =
     typeof to === "string" && to.includes("@") ? to.split("@")[1] : null;
 
-  log("resend.send.start", { rid, toDomain });
+  logImpl("resend.send.start", { rid, toDomain });
 
-  const res = await fetch("https://api.resend.com/emails", {
+  const res = await fetchImpl("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -33,10 +31,10 @@ export async function sendResendEmail({
     parsed = null;
   }
 
-  const resendMs = Date.now() - t0;
+  const resendMs = now() - t0;
 
   if (!res.ok) {
-    log("resend.send.fail", {
+    logImpl("resend.send.fail", {
       rid,
       resendMs,
       status: res.status,
@@ -45,7 +43,7 @@ export async function sendResendEmail({
     throw new Error(`Resend error (${res.status}): ${raw}`);
   }
 
-  log("resend.send.ok", {
+  logImpl("resend.send.ok", {
     rid,
     resendMs,
     status: res.status,
@@ -55,4 +53,14 @@ export async function sendResendEmail({
   return parsed || {};
 }
 
+/**
+ * Production wrapper. NO call sites need to change.
+ */
+export async function sendResendEmail(args) {
+  return _sendResendEmailCore(args, {
+    fetchImpl: fetch,
+    logImpl: log,
+    now: () => Date.now(),
+  });
+}
 
