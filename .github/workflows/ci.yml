@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_performance:
+        description: "Run k6 performance tests"
+        required: false
+        default: "false"
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: https://staging.rootfleet-waitlist.pages.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Smoke tests
+        run: npm run test:smoke
+
+      - name: Functional tests
+        run: npm run test:functional
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+  performance:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_performance == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: https://staging.rootfleet-waitlist.pages.dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates gnupg
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/k6-archive-keyring.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: k6 load test
+        run: k6 run tests/performance/waitlist.load.k6.js
