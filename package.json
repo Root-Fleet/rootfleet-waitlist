@@ -1,0 +1,32 @@
+{
+  "scripts": {
+    "test:unit": "node --test \"src/**/*.test.js\" \"src/**/*.unit.test.js\"",
+    "test:integration": "node --import ./tests/helpers/bootstrap.js --test \"tests/integration/**/*.int.test.js\"",
+    "test:e2e": "node --import ./tests/helpers/bootstrap.js --test \"tests/e2e/**/*.e2e.test.js\"",
+    "test:smoke": "node --import ./tests/helpers/bootstrap.js --test \"tests/smoke/**/*.smoke.test.js\"",
+    "test:ci": "npm run test:unit && npm run test:integration && npm run test:e2e",
+    "test:integration:local": "BASE_URL=http://localhost:8788 npm run test:integration",
+    "test:e2e:local": "BASE_URL=http://localhost:8788 npm run test:e2e",
+    "test:smoke:local": "BASE_URL=http://localhost:8788 npm run test:smoke",
+    "test:e2e:ui": "playwright test",
+    "test:e2e:ui:headed": "playwright test --headed",
+    "test:perf:load": "k6 run tests/performance/waitlist.load.k6.js",
+    "test:perf:stress": "k6 run tests/performance/waitlist.stress.k6.js",
+    "test:contract": "node tests/contract/waitlist.contract.test.js",
+    "test:security:deps": "npm audit --audit-level=high",
+    "test:security:secrets": "secretlint \"**/*\"",
+    "test:security:headers": "node tests/security/headers.security.test.js",
+    "test:security": "npm run test:security:deps && npm run test:security:secrets && npm run test:security:headers",
+    "test:canary": "node tests/canary/canary.test.js",
+    "lint:secrets": "secretlint ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^11.3.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "node-fetch": "^3.3.2",
+    "npm-audit-resolver": "^3.0.0-RC.0",
+    "secretlint": "^11.3.0"
+  }
+}

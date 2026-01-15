@@ -3,13 +3,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { get, postJson, uniqueEmail } from '../helpers/http.js';
 
+const ALLOW_WRITES = process.env.SMOKE_ALLOW_WRITES === 'true';
+
 test('SMOKE: service responds (health if available)', async () => {
-  // If you don’t have /api/health, this will still pass if it returns anything other than a hard network failure.
   const { res } = await get('/api/health');
   assert.ok(res.status === 200 || res.status === 404 || res.status === 405);
 });
 
 test('SMOKE: can signup once', async () => {
+  if (!ALLOW_WRITES) {
+    test.skip('SMOKE_ALLOW_WRITES not enabled');
+    return;
+  }
+
   const email = uniqueEmail('smoke');
   const { res, json, text } = await postJson('/api/waitlist', {
     email,

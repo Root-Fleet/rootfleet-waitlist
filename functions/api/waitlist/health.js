@@ -11,6 +11,22 @@ function json(status, body) {
   });
 }
 
+// ─────────────────────────────────────────────
+// Internal auth for /api/health
+// ─────────────────────────────────────────────
+function getInternalSecret(request) {
+  return (
+    request?.headers?.get("x-internal-secret") ||
+    request?.headers?.get("X-Internal-Secret") ||
+    null
+  );
+}
+
+function safeNotFound() {
+  // Return 404 to avoid revealing this endpoint exists
+  return json(404, { ok: false, error: "Not Found" });
+}
+
 /**
  * Core (unit-testable): inject uuid/now/log and checkers.
  */
@@ -29,6 +45,31 @@ export async function _healthGetCore(
   const rid = uuid();
   const t0 = now();
 
+  // ─────────────────────────────────────────────
+  // Guard: internal-only health endpoint
+  // ─────────────────────────────────────────────
+  const expectedSecret = env?.INTERNAL_HEALTH_SECRET || null;
+
+  // If secret is configured, require it
+  if (expectedSecret) {
+    const provided = getInternalSecret(request);
+
+    if (!provided || provided !== expectedSecret) {
+      // Minimal logging, do not leak details
+      try {
+        const url = new URL(request?.url || "http://local/health");
+        logImpl("health.auth.denied", {
+          rid,
+          path: url.pathname,
+          hasSecret: !!provided,
+        });
+      } catch {
+        logImpl("health.auth.denied", { rid, hasSecret: !!provided });
+      }
+      return safeNotFound();
+    }
+  }
+
   const url = new URL(request?.url || "http://local/health");
   const deep = url.searchParams.get("deep") === "1";
 
@@ -39,7 +80,9 @@ export async function _healthGetCore(
 
   // Config checks (do not fail health, but useful signals)
   const resendConfigured = Boolean(env?.RESEND_API_KEY);
-  const upstashConfigured = Boolean(env?.UPSTASH_REDIS_REST_URL && env?.UPSTASH_REDIS_REST_TOKEN);
+  const upstashConfigured = Boolean(
+    env?.UPSTASH_REDIS_REST_URL && env?.UPSTASH_REDIS_REST_TOKEN
+  );
 
   // Critical binding check: D1 must be bound for this app to function
   const d1Bound = Boolean(env?.DB);
@@ -76,7 +119,13 @@ export async function _healthGetCore(
     checks.d1.error = "d1_not_bound";
     const totalMs = now() - t0;
 
-    logImpl("health.fail", { rid, environment, reason: "d1_not_bound", deep, totalMs });
+    logImpl("health.fail", {
+      rid,
+      environment,
+      reason: "d1_not_bound",
+      deep,
+      totalMs,
+    });
 
     return json(503, {
       ok: false,
@@ -117,7 +166,6 @@ export async function _healthGetCore(
         checkRedis ||
         (async () => {
           const q0 = now();
-          // Uses your existing Upstash REST client core; inject fetch in tests if needed.
           await _redisCmdCore(env, "ping", [], { fetchImpl: fetch, logImpl });
           return { ok: true, latencyMs: now() - q0 };
         });
@@ -134,9 +182,6 @@ export async function _healthGetCore(
     }
   }
 
-  // Final health decision:
-  // - D1 binding is critical
-  // - if deep=1, D1 ping must succeed too
   const ok = deep ? checks.d1.ok === true : d1Bound === true;
   const status = ok ? 200 : 503;
 
@@ -169,3 +214,4 @@ export async function _healthGetCore(
 export async function onRequestGet(ctx) {
   return _healthGetCore(ctx);
 }
+

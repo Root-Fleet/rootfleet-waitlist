@@ -1,0 +1,10 @@
+{
+  "$id": "waitlist.count.response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "count"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "count": { "type": "integer", "minimum": 0 }
+  }
+}

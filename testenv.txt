@@ -1,0 +1,34 @@
+#During development (fast)
+
+# for local server run
+wrangler pages dev
+BASE_URL= http://localhost:8788 npm run test:all
+
+# unit test
+npm run test:unit
+
+#Before pushing (confidence)
+# Integration test
+wrangler pages dev
+BASE_URL=http://localhost:8788 npm run test:integration
+
+Before release (highest confidence)
+# Integration test
+wrangler pages dev
+BASE_URL=http://localhost:8788 npm run test:integration
+#E2E local
+wrangler pages dev
+BASE_URL=http://localhost:8788 npx playwright test
+
+#After deployment
+# smoke local
+BASE_URL=http://localhost:8788 npm run test:smoke
+# smoke staging
+BASE_URL=https://staging.rootfleet-waitlist.pages.dev npm run test:smoke
+# smoke prod
+BASE_URL= https://waitlist.rootfleet.com/ npm run test:smoke
+
+# load/stress with k6
+BASE_URL=https://staging.rootfleet-waitlist.pages.dev npm run perf:load
+BASE_URL=https://staging.rootfleet-waitlist.pages.dev npm run perf:stress
+

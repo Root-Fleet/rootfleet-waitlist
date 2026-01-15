@@ -2,3 +2,6 @@ node_modules/
 .wrangler/
 .DS_Store
 
+# Test environment files (local / CI overrides)
+tests/env/*.env
+
