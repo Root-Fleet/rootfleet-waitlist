@@ -1,0 +1,11 @@
+{
+  "$id": "error.response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "error", "rid"],
+  "properties": {
+    "ok": { "const": false },
+    "error": { "type": "string", "minLength": 1 },
+    "rid": { "type": "string", "minLength": 1 }
+  }
+}

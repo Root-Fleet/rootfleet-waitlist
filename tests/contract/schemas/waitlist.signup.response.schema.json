@@ -2,13 +2,14 @@
   "$id": "waitlist.signup.response",
   "type": "object",
   "additionalProperties": false,
-  "required": ["ok", "message"],
+  "required": ["ok", "status", "message", "rid"],
   "properties": {
     "ok": { "type": "boolean" },
+    "status": {
+      "type": "string",
+      "enum": ["joined", "already_joined"]
+    },
     "message": { "type": "string", "minLength": 1 },
-    "data": {
-      "type": "object",
-      "additionalProperties": true
-    }
+    "rid": { "type": "string", "minLength": 1 }
   }
 }
